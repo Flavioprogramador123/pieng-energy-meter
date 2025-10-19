@@ -8,6 +8,11 @@ class Settings(BaseSettings):
     enable_forwarding: bool = True
     forwarder_url: str | None = None
     scheduler_timezone: str = "UTC"
+    
+    # Tuya IoT Configuration (opcional)
+    tuya_access_id: str | None = None
+    tuya_access_secret: str | None = None
+    tuya_api_region: str = "us"
 
     class Config:
         env_file = ".env"

@@ -7,6 +7,7 @@ from .core.db import Base, engine
 from .routers import get_api_router
 from .services.scheduler import PollingScheduler
 from .services.pollers import poll_modbus_devices, poll_modbus_tcp_devices
+from .services.tuya_poller import poll_tuya_devices
 
 
 def create_app() -> FastAPI:
@@ -38,6 +39,7 @@ def create_app() -> FastAPI:
         scheduler.start()
         scheduler.add_job(lambda: poll_modbus_devices(), seconds=30, id="poll_modbus")
         scheduler.add_job(lambda: poll_modbus_tcp_devices(), seconds=30, id="poll_modbus_tcp")
+        scheduler.add_job(lambda: poll_tuya_devices(), seconds=30, id="poll_tuya")  # Tuya REAL data!
 
     @app.on_event("shutdown")
     def on_shutdown():

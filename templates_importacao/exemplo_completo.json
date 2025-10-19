@@ -1,0 +1,65 @@
+[
+  {
+    "name": "Medidor Tuya - Escritório",
+    "device_type": "tuya",
+    "client_id": 1,
+    "config": {
+      "device_id": "ebbef04296002afe3ecxcg",
+      "metrics": ["energy", "voltage", "current", "power"]
+    }
+  },
+  {
+    "name": "PZEM-004T - Sala de Montagem",
+    "device_type": "modbus_tcp",
+    "client_id": 1,
+    "config": {
+      "host": "192.168.1.100",
+      "port": 502,
+      "slave_id": 1,
+      "timeout": 3.0,
+      "driver": "pzem004t",
+      "base": 0
+    }
+  },
+  {
+    "name": "SDM630 - Entrada Principal",
+    "device_type": "modbus_tcp",
+    "client_id": 1,
+    "config": {
+      "host": "192.168.1.101",
+      "port": 502,
+      "slave_id": 2,
+      "timeout": 3.0,
+      "driver": "sdm630",
+      "base": 0
+    }
+  },
+  {
+    "name": "PZEM-004T - Lab Serial",
+    "device_type": "modbus",
+    "client_id": 1,
+    "config": {
+      "port": "COM3",
+      "slave_id": 1,
+      "baudrate": 9600,
+      "timeout": 0.5,
+      "driver": "pzem004t",
+      "base": 0
+    }
+  },
+  {
+    "name": "Medidor Genérico - Linha 1",
+    "device_type": "modbus_tcp",
+    "client_id": 1,
+    "config": {
+      "host": "192.168.1.200",
+      "port": 502,
+      "slave_id": 10,
+      "timeout": 3.0,
+      "base": 0,
+      "count": 10,
+      "metrics": ["voltage_l1", "voltage_l2", "voltage_l3", "current_l1", "current_l2", "current_l3", "power_l1", "power_l2", "power_l3", "energy_total"]
+    }
+  }
+]
+

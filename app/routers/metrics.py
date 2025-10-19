@@ -13,7 +13,18 @@ router = APIRouter(prefix="/metrics", tags=["metrics"])
 @router.get("")
 def list_metrics(device_id: int, metric: str | None = Query(default=None), limit: int = 500, db: Session = Depends(get_db)):
     rows = crud.list_measurements(db, device_id=device_id, metric=metric, limit=limit)
-    return [schemas.MeasurementRead.model_validate(r) for r in rows]
+    # Retornar como dict diretamente para evitar problemas de serialização JSON
+    return [
+        {
+            "id": r.id,
+            "device_id": r.device_id,
+            "timestamp": r.timestamp.isoformat(),
+            "metric": r.metric,
+            "value": r.value,
+            "extra": r.extra if isinstance(r.extra, dict) else {}
+        }
+        for r in rows
+    ]
 
 
 @router.get("/timerange")

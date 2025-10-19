@@ -63,11 +63,27 @@ logs/
 *.sqlite
 *.sqlite3
 
-# Test files
-test_*.py
-*_test.py
+# Test results (podem conter dados sensíveis)
+test_results_*.json
+tuya_devices_*.json
 
 # Temporary files
 *.tmp
 *.temp
 .vercel
+
+# Credenciais e dados sensíveis
+*.key
+*.pem
+*.p12
+*.pfx
+credentials/
+secrets/
+.secrets
+*_secret.json
+*_credentials.json
+
+# Backups
+*.backup
+*.bak
+data/backups/

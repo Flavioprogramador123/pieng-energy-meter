@@ -27,4 +27,13 @@ def analytics(request: Request, db: Session = Depends(get_db)):
     )
 
 
+@router.get("/setup", response_class=HTMLResponse)
+def device_setup(request: Request):
+    """Interface visual para cadastro de dispositivos"""
+    return request.app.state.templates.TemplateResponse(
+        "device_setup.html",
+        {"request": request},
+    )
+
+
 
