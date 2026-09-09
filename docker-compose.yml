@@ -1,8 +1,11 @@
-# Postgres local para TESTE, isolado do stack pieng_postgres (que é outra
-# aplicação). O volume fica em ./data/postgres_data para ser fácil de
-# localizar quando o storage mudar de máquina (HD do escritório -> mini PC em
-# casa). Para mover de host, prefira `pg_dump`/`pg_restore` a copiar a pasta
-# do volume direto — evita problemas de versão/plataforma entre os hosts.
+# Postgres em DOCKER (caminho futuro / mini PC). Mantido de proposito.
+# Em 2026-09-09 o TESTE no escritorio usa Postgres NATIVO (servico Windows
+# postgresql-x64-17) com data dir em:
+#   K:\storage\postgres\energy_meter\pgdata
+# O volume Docker fica em pasta SEPARADA para nao colidir com o nativo:
+#   K:\storage\postgres\energy_meter_docker
+# Nao apagar este arquivo — sera reutilizado quando Docker/mini PC estiver ok.
+# Para mover de host, prefira `pg_dump`/`pg_restore` a copiar a pasta do volume.
 services:
   postgres:
     image: postgres:16
@@ -13,6 +16,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-energy_meter_dev_only}
       POSTGRES_DB: ${POSTGRES_DB:-energy_meter}
     ports:
-      - "127.0.0.1:5432:5432"
+      # Nativo ja usa 5432 nesta maquina — ao testar Docker, mude para 5433
+      - "127.0.0.1:5433:5432"
     volumes:
-      - ./data/postgres_data:/var/lib/postgresql/data
+      - K:/storage/postgres/energy_meter_docker:/var/lib/postgresql/data

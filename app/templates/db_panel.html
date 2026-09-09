@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}Banco / Storage — Energy Meter{% endblock %}
+
+{% block content %}
+<main class="page db-page">
+  <section class="page-header">
+    <div>
+      <h1>Banco &amp; Storage</h1>
+      <p class="muted">Hot path = SQLite (NVMe). Espelho = Postgres no HD <code>K:\STORAGE</code>.</p>
+    </div>
+    <div class="header-actions">
+      <button type="button" class="btn" id="btn-refresh">Atualizar</button>
+      <button type="button" class="btn btn-primary" id="btn-flush">Flush agora</button>
+    </div>
+  </section>
+
+  <section class="card help-card" id="help-db">
+    <h2>O que é o quê?</h2>
+    <ul class="help-list">
+      <li><strong>SQLite</strong> — onde a coleta grava a cada ~30s e o Dashboard lê. É o “quente”.</li>
+      <li><strong>Postgres (K:)</strong> — cópia no HD do escritório. O <em>flush</em> copia do SQLite para cá de tempos em tempos.</li>
+      <li><strong>DATABASE_URL</strong> — se trocássemos agora, a app passaria a usar <em>só</em> o Postgres. Ainda não fazemos isso: o HD USB pode oscilar; o SQLite no NVMe é mais seguro para coletar.</li>
+    </ul>
+  </section>
+
+  <section class="grid-2">
+    <article class="card" id="card-status">
+      <h2>Status do espelho</h2>
+      <div id="mirror-status" class="mono muted">Carregando…</div>
+    </article>
+
+    <article class="card" id="card-settings">
+      <h2>Configurações do flush</h2>
+      <form id="flush-form" class="flush-form">
+        <label class="field-check">
+          <input type="checkbox" id="flush-enabled" />
+          Flush automático ligado
+        </label>
+        <label class="field">
+          Intervalo (minutos)
+          <input type="number" id="flush-minutes" min="1" max="1440" step="1" />
+        </label>
+        <label class="field">
+          Teto cache SQLite (MB)
+          <input type="number" id="cache-max-mb" min="50" max="50000" step="10" />
+        </label>
+        <p class="hint muted">Padrão teste: flush 30 min · cache 200 MB (~3 dias com ~3 aparelhos). Se o K: ficar fora, os dados ficam no SQLite até descarregar.</p>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+        <div id="flush-last" class="mono muted flush-last"></div>
+        <div id="cache-status" class="mono muted flush-last"></div>
+      </form>
+    </article>
+  </section>
+
+  <section class="card">
+    <h2>Contagens SQLite × Postgres</h2>
+    <div class="table-wrap">
+      <table class="data-table" id="counts-table">
+        <thead>
+          <tr><th>Tabela</th><th>SQLite (hot)</th><th>Postgres (K:)</th><th>Diferença</th></tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Ver linhas do Postgres</h2>
+    <div class="table-toolbar">
+      <label class="field inline">
+        Tabela
+        <select id="table-select">
+          <option value="measurements">measurements</option>
+          <option value="devices">devices</option>
+          <option value="clients">clients</option>
+          <option value="alarm_rules">alarm_rules</option>
+          <option value="alarm_events">alarm_events</option>
+        </select>
+      </label>
+      <button type="button" class="btn" id="btn-load-table">Carregar</button>
+      <span id="table-meta" class="muted mono"></span>
+    </div>
+    <div class="table-wrap">
+      <table class="data-table" id="rows-table">
+        <thead></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+{% endblock %}
+
+{% block extra_scripts %}
+<script src="/static/js/db_panel.js?v=1"></script>
+{% endblock %}

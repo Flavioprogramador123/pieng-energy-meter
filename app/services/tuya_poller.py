@@ -179,6 +179,14 @@ def parse_tuya_data(device_id: str, status_result: List[Dict]) -> Dict[str, Any]
             metrics[f'power_factor_{dst}'] = pf
             power_factors.append(pf)
 
+        # Energia acumulada REAL do próprio hardware, já separada por sentido pelo
+        # medidor (não é derivada/estimada): forward = consumida da rede,
+        # reverse = injetada na rede (geração solar excedente).
+        if f'forward_energy_{src}' in data_dict:
+            metrics[f'energy_imported_{dst}'] = float(data_dict[f'forward_energy_{src}']) / 100.0
+        if f'reverse_energy_{src}' in data_dict:
+            metrics[f'energy_exported_{dst}'] = float(data_dict[f'reverse_energy_{src}']) / 100.0
+
     if voltages:
         metrics['voltage_avg'] = sum(voltages) / len(voltages)
 
@@ -199,6 +207,38 @@ def parse_tuya_data(device_id: str, status_result: List[Dict]) -> Dict[str, Any]
         energy_kwh = float(data_dict['forward_energy_total']) / 100.0
         metrics['energy_kwh'] = energy_kwh
         metrics.setdefault('energy_wh', energy_kwh * 1000)
+        metrics['energy_imported_total'] = energy_kwh
+
+    if 'reverse_energy_total' in data_dict:
+        metrics['energy_exported_total'] = float(data_dict['reverse_energy_total']) / 100.0
+
+    # Separação instantânea de sentido (importação da rede vs injeção solar),
+    # derivada do sinal já presente em active_power_a/b/c/total (dado real do
+    # medidor, não estimado). current_* do Tuya vem sem sinal (só magnitude),
+    # então a corrente é atribuída ao sentido em que a fase estava no instante
+    # da leitura — ainda não dá pra isolar a corrente do inversor sem um TC
+    # dedicado nele, só o líquido medido no ponto de entrega.
+    for dst in ('l1', 'l2', 'l3'):
+        p = metrics.get(f'power_{dst}')
+        if p is None:
+            continue
+        c = metrics.get(f'current_{dst}', 0.0)
+        metrics[f'power_import_{dst}'] = max(p, 0.0)
+        metrics[f'power_export_{dst}'] = max(-p, 0.0)
+        metrics[f'current_import_{dst}'] = c if p >= 0 else 0.0
+        metrics[f'current_export_{dst}'] = c if p < 0 else 0.0
+
+    if 'power_total' in metrics:
+        pt = metrics['power_total']
+        metrics['power_import_total'] = max(pt, 0.0)
+        metrics['power_export_total'] = max(-pt, 0.0)
+        has_phase_split = any(f'power_import_{p}' in metrics for p in ('l1', 'l2', 'l3'))
+        if has_phase_split:
+            metrics['current_import_total'] = sum(metrics.get(f'current_import_{p}', 0.0) for p in ('l1', 'l2', 'l3'))
+            metrics['current_export_total'] = sum(metrics.get(f'current_export_{p}', 0.0) for p in ('l1', 'l2', 'l3'))
+        elif 'current_total' in metrics:
+            metrics['current_import_total'] = metrics['current_total'] if pt >= 0 else 0.0
+            metrics['current_export_total'] = metrics['current_total'] if pt < 0 else 0.0
 
     if 'frequency' in data_dict:
         metrics['frequency'] = float(data_dict['frequency'])

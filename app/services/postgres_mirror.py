@@ -1,0 +1,222 @@
+"""Espelho Postgres no HD K: — status, leitura de tabelas e flush incremental.
+
+A app CONTINUA usando SQLite (DATABASE_URL / hot path).
+Este módulo só copia dados REAIS do SQLite para o Postgres de espelho.
+"""
+from __future__ import annotations
+
+import threading
+from datetime import datetime, timezone
+from typing import Any
+
+from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.orm import sessionmaker
+
+from app.core.config import settings
+from app.core.db import Base, SessionLocal
+from app import models
+
+TABLE_ORDER = [
+    models.Client,
+    models.Device,
+    models.Measurement,
+    models.AlarmRuleModel,
+    models.AlarmEvent,
+]
+
+_STATUS_LOCK = threading.Lock()
+_LAST_STATUS: dict[str, Any] = {
+    "ok": None,
+    "last_run_at": None,
+    "last_error": None,
+    "copied": {},
+    "duration_ms": None,
+}
+
+
+def mirror_url() -> str:
+    """URL do Postgres espelho (HD K:). Override via POSTGRES_MIRROR_URL no .env."""
+    if getattr(settings, "postgres_mirror_url", None):
+        return settings.postgres_mirror_url  # type: ignore[return-value]
+    user = settings.postgres_user or "energy_meter"
+    password = settings.postgres_password or "energy_meter_dev_only"
+    db = settings.postgres_db or "energy_meter"
+    return f"postgresql://{user}:{password}@localhost:5432/{db}"
+
+
+def get_mirror_engine():
+    return create_engine(mirror_url(), pool_pre_ping=True)
+
+
+def get_last_flush_status() -> dict[str, Any]:
+    with _STATUS_LOCK:
+        return dict(_LAST_STATUS)
+
+
+def _set_status(**kwargs: Any) -> None:
+    with _STATUS_LOCK:
+        _LAST_STATUS.update(kwargs)
+
+
+def probe_mirror() -> dict[str, Any]:
+    """Testa conexão e devolve contagens das tabelas no Postgres."""
+    url = mirror_url()
+    safe = url.split("@")[-1] if "@" in url else url
+    try:
+        engine = get_mirror_engine()
+        with engine.connect() as conn:
+            version = conn.execute(text("SELECT version()")).scalar()
+            data_dir = None
+            try:
+                data_dir = conn.execute(text("SHOW data_directory")).scalar()
+            except Exception:
+                conn.rollback()
+                data_dir = "(sem permissao para ler data_directory)"
+            counts = {}
+            for model in TABLE_ORDER:
+                try:
+                    counts[model.__tablename__] = conn.execute(
+                        text(f"SELECT count(*) FROM {model.__tablename__}")
+                    ).scalar()
+                except Exception:
+                    counts[model.__tablename__] = None
+        return {
+            "ok": True,
+            "url_host": safe,
+            "version": str(version).split("\n")[0] if version else None,
+            "data_directory": data_dir,
+            "counts": counts,
+            "error": None,
+        }
+    except Exception as e:
+        return {
+            "ok": False,
+            "url_host": safe,
+            "version": None,
+            "data_directory": None,
+            "counts": {},
+            "error": str(e).splitlines()[0],
+        }
+
+
+def sqlite_counts() -> dict[str, int]:
+    db = SessionLocal()
+    try:
+        out: dict[str, int] = {}
+        for model in TABLE_ORDER:
+            out[model.__tablename__] = db.query(model).count()
+        return out
+    finally:
+        db.close()
+
+
+def list_table_rows(table: str, limit: int = 50, offset: int = 0) -> dict[str, Any]:
+    allowed = {m.__tablename__: m for m in TABLE_ORDER}
+    if table not in allowed:
+        raise ValueError(f"Tabela inválida: {table}")
+    model = allowed[table]
+    engine = get_mirror_engine()
+    MirrorSession = sessionmaker(bind=engine)
+    db = MirrorSession()
+    try:
+        total = db.query(model).count()
+        # order by id desc when available
+        q = db.query(model)
+        if hasattr(model, "id"):
+            q = q.order_by(model.id.desc())
+        rows = q.offset(offset).limit(limit).all()
+        cols = [c.key for c in inspect(model).mapper.column_attrs]
+        data = []
+        for row in rows:
+            item = {}
+            for c in cols:
+                val = getattr(row, c)
+                if isinstance(val, datetime):
+                    item[c] = val.isoformat()
+                else:
+                    item[c] = val
+            data.append(item)
+        return {"table": table, "total": total, "limit": limit, "offset": offset, "columns": cols, "rows": data}
+    finally:
+        db.close()
+
+
+def flush_sqlite_to_postgres() -> dict[str, Any]:
+    """Copia incrementalmente do SQLite (hot) para o Postgres (espelho no K:)."""
+    started = datetime.now(timezone.utc)
+    copied: dict[str, int] = {}
+    try:
+        postgres_engine = get_mirror_engine()
+        Base.metadata.create_all(bind=postgres_engine)
+
+        SqliteSession = SessionLocal
+        PostgresSession = sessionmaker(bind=postgres_engine)
+        sqlite_db = SqliteSession()
+        postgres_db = PostgresSession()
+        try:
+            for model in TABLE_ORDER:
+                table = model.__tablename__
+                # incremental por id
+                max_pg = postgres_db.query(model.id).order_by(model.id.desc()).limit(1).scalar()
+                q = sqlite_db.query(model).order_by(model.id)
+                if max_pg is not None:
+                    q = q.filter(model.id > max_pg)
+                rows = q.all()
+                n = 0
+                for row in rows:
+                    data = {c.key: getattr(row, c.key) for c in inspect(model).mapper.column_attrs}
+                    try:
+                        with postgres_db.begin_nested():
+                            postgres_db.merge(model(**data))
+                        n += 1
+                    except Exception:
+                        continue
+                # também atualiza pais (clients/devices) mesmo se id já existe — merge upsert
+                if model in (models.Client, models.Device):
+                    all_rows = sqlite_db.query(model).order_by(model.id).all()
+                    for row in all_rows:
+                        data = {c.key: getattr(row, c.key) for c in inspect(model).mapper.column_attrs}
+                        try:
+                            with postgres_db.begin_nested():
+                                postgres_db.merge(model(**data))
+                        except Exception:
+                            continue
+                postgres_db.commit()
+                copied[table] = n
+
+            # sequences
+            for model in TABLE_ORDER:
+                table = model.__tablename__
+                with postgres_engine.begin() as conn:
+                    conn.execute(text(
+                        f"SELECT setval(pg_get_serial_sequence('{table}', 'id'), "
+                        f"COALESCE((SELECT MAX(id) FROM {table}), 1), "
+                        f"(SELECT MAX(id) IS NOT NULL FROM {table}))"
+                    ))
+        finally:
+            sqlite_db.close()
+            postgres_db.close()
+
+        elapsed = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+        result = {
+            "ok": True,
+            "last_run_at": started.isoformat(),
+            "last_error": None,
+            "copied": copied,
+            "duration_ms": elapsed,
+        }
+        _set_status(**result)
+        print(f"[postgres_mirror] flush OK copied={copied} {elapsed}ms")
+        return result
+    except Exception as e:
+        elapsed = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+        result = {
+            "ok": False,
+            "last_run_at": started.isoformat(),
+            "last_error": str(e).splitlines()[0],
+            "copied": copied,
+            "duration_ms": elapsed,
+        }
+        _set_status(**result)
+        print(f"[postgres_mirror] flush FALHOU: {result['last_error']}")
+        return result

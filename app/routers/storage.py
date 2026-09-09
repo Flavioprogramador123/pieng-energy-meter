@@ -5,7 +5,7 @@ from app.schemas import MeasurementCreate
 from datetime import datetime
 import os
 
-router = APIRouter(prefix="/api/storage", tags=["storage"])
+router = APIRouter(prefix="/storage", tags=["storage"])
 
 @router.get("/status")
 async def get_storage_status():

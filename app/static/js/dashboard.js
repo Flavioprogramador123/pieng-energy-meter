@@ -9,11 +9,133 @@ function el(id) { return document.getElementById(id); }
 let charts = {};
 let currentPeriod = '1d';
 
-function metricsUrl(deviceId, metric, limit = 100) {
-  return `/api/metrics?device_id=${deviceId}&metric=${metric}&limit=${limit}&period=${currentPeriod}`;
+// Zoom de tempo compartilhado por todos os cards (gráficos e valores ao vivo).
+// null = período completo carregado; senão {from, to} em epoch ms, absoluto
+// (não normalizado), pra não derivar quando os dados são atualizados a cada 30s.
+let timeWindow = null;
+let fullRange = { min: null, max: null };
+let rawCache = null; // último resultado bruto do fetch, pra reprocessar sem rede ao mexer no zoom
+
+function filterWindow(arr) {
+  if (!timeWindow || !arr) return arr;
+  return arr.filter((d) => {
+    const t = new Date(d.timestamp).getTime();
+    return t >= timeWindow.from && t <= timeWindow.to;
+  });
 }
 
-function createChart(canvasId, label, color) {
+function computeFullRange(arrays) {
+  let min = null, max = null;
+  arrays.forEach((arr) => {
+    (arr || []).forEach((d) => {
+      const t = new Date(d.timestamp).getTime();
+      if (min === null || t < min) min = t;
+      if (max === null || t > max) max = t;
+    });
+  });
+  return { min, max };
+}
+
+function fmtZoomTime(ms) {
+  if (ms == null) return '--';
+  return new Date(ms).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+}
+
+function updateZoomLabel() {
+  const label = el('zoomRangeLabel');
+  if (!label) return;
+  if (fullRange.min == null) {
+    label.textContent = '--';
+  } else if (!timeWindow) {
+    label.textContent = `${fmtZoomTime(fullRange.min)} — ${fmtZoomTime(fullRange.max)} (completo)`;
+  } else {
+    label.textContent = `${fmtZoomTime(timeWindow.from)} — ${fmtZoomTime(timeWindow.to)}`;
+  }
+}
+
+function applyZoomFromSliders() {
+  if (fullRange.min == null || fullRange.max == null || fullRange.max <= fullRange.min) return;
+  const fromInput = el('zoomFrom');
+  const toInput = el('zoomTo');
+  let a = Number(fromInput.value);
+  let b = Number(toInput.value);
+  if (a > b) { const t = a; a = b; b = t; }
+  const span = fullRange.max - fullRange.min;
+  timeWindow = (a <= 0 && b >= 1000)
+    ? null
+    : { from: fullRange.min + (a / 1000) * span, to: fullRange.min + (b / 1000) * span };
+  updateZoomLabel();
+  if (rawCache) renderFromCache();
+}
+
+function resetZoom() {
+  timeWindow = null;
+  const fromInput = el('zoomFrom');
+  const toInput = el('zoomTo');
+  if (fromInput) fromInput.value = 0;
+  if (toInput) toInput.value = 1000;
+  updateZoomLabel();
+  if (rawCache) renderFromCache();
+}
+
+// Âncora de navegação no histórico (dia/semana/mês anterior). null = "agora"
+// (comportamento de sempre — janela terminando no momento atual). Setado,
+// vira uma data ISO fixa que vira o "fim" da janela buscada no servidor.
+let anchorEnd = null;
+
+function periodDeltaMs() {
+  return currentPeriod === '1m' ? 30 * 86400000 : (currentPeriod === '1w' ? 7 * 86400000 : 86400000);
+}
+
+function resetPeriodNav() {
+  anchorEnd = null;
+  resetZoom();
+}
+
+function navigatePeriod(direction) {
+  const delta = periodDeltaMs();
+  const base = anchorEnd != null ? anchorEnd : Date.now();
+  const next = base + direction * delta;
+  anchorEnd = next >= Date.now() ? null : next;
+  resetZoom();
+  updatePeriodRangeLabel();
+  loadData();
+}
+
+function updatePeriodRangeLabel() {
+  const label = el('periodRangeLabel');
+  const nextBtn = el('periodNextBtn');
+  const todayBtn = el('periodTodayBtn');
+  if (!label) return;
+  const isPast = anchorEnd != null;
+  if (nextBtn) nextBtn.disabled = !isPast;
+  if (todayBtn) todayBtn.disabled = !isPast;
+  label.classList.toggle('is-past', isPast);
+  if (!isPast) {
+    label.textContent = 'Agora';
+    return;
+  }
+  const end = new Date(anchorEnd);
+  const start = new Date(anchorEnd - periodDeltaMs());
+  const fmt = (d) => d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' });
+  label.textContent = currentPeriod === '1d' ? fmt(end) : `${fmt(start)} – ${fmt(end)}`;
+}
+
+function toNaiveLocalISOString(ms) {
+  // O backend grava timestamps com datetime.now() (hora local, sem timezone).
+  // toISOString() do JS é sempre UTC — usar componentes locais aqui pra bater
+  // com o que está gravado no banco (mesma máquina/fuso do app local).
+  const d = new Date(ms);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function metricsUrl(deviceId, metric, limit = 100) {
+  const end = anchorEnd != null ? `&end=${encodeURIComponent(toNaiveLocalISOString(anchorEnd))}` : '';
+  return `/api/metrics?device_id=${deviceId}&metric=${metric}&limit=${limit}&period=${currentPeriod}${end}`;
+}
+
+function createChart(canvasId, label, color, yRange = {}) {
   const C = getChartColors();
   return new Chart(el(canvasId), {
     type: 'line',
@@ -23,28 +145,108 @@ function createChart(canvasId, label, color) {
         label: label,
         data: [],
         borderColor: color,
-        backgroundColor: hexToRgba(color, 0.2),
-        tension: 0.4,
+        backgroundColor: hexToRgba(color, 0.14),
+        tension: 0.35,
         fill: true,
-        borderWidth: 3,
-        pointRadius: 2,
-        pointHoverRadius: 5
+        borderWidth: 2,
+        pointRadius: 0,
+        pointHoverRadius: 4,
+        pointHitRadius: 8
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      animation: { duration: 280 },
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { display: false },
         tooltip: tooltipConfig()
       },
       scales: {
-        x: { ticks: { color: C.textMuted }, grid: { color: C.grid } },
-        y: { beginAtZero: true, ticks: { color: C.textMuted }, grid: { color: C.gridStrong } }
+        x: {
+          ticks: { color: C.textMuted, maxTicksLimit: 7, maxRotation: 0, autoSkip: true, font: { size: 10 } },
+          grid: { color: C.grid, drawBorder: false }
+        },
+        y: {
+          beginAtZero: false,
+          min: yRange.min,
+          max: yRange.max,
+          ticks: { color: C.textMuted, maxTicksLimit: 6, font: { size: 10 } },
+          grid: { color: C.gridStrong, drawBorder: false }
+        }
       }
     }
   });
+}
+
+function lineDataset(label, data, color, extras = {}) {
+  return {
+    label,
+    data,
+    borderColor: color,
+    backgroundColor: hexToRgba(color, extras.fillAlpha ?? 0.12),
+    tension: extras.tension ?? 0.35,
+    fill: extras.fill ?? false,
+    borderWidth: extras.borderWidth ?? 2,
+    pointRadius: extras.pointRadius ?? 0,
+    pointHoverRadius: 4,
+    pointHitRadius: 8,
+    ...extras.more
+  };
+}
+
+function chartScaleOpts(C, beginAtZero = false, yRange = {}) {
+  return {
+    x: {
+      ticks: { color: C.textMuted, maxTicksLimit: 8, maxRotation: 0, autoSkip: true, font: { size: 10 } },
+      grid: { color: C.grid, drawBorder: false }
+    },
+    y: {
+      beginAtZero,
+      min: yRange.min,
+      max: yRange.max,
+      ticks: { color: C.textMuted, maxTicksLimit: 6, font: { size: 10 } },
+      grid: { color: C.gridStrong, drawBorder: false }
+    }
+  };
+}
+
+function buildPhaseChart(key, canvasId, s1, s2, s3, beginAtZero) {
+  const canvas = el(canvasId);
+  if (!canvas) return;
+  const C = getChartColors();
+  const s1r = (s1 || []).slice().reverse();
+  const s2r = (s2 || []).slice().reverse();
+  const s3r = (s3 || []).slice().reverse();
+  const labels = s1r.map(x => new Date(x.timestamp).toLocaleTimeString());
+
+  if (!charts[key] || !charts[key].data.datasets[1]) {
+    if (charts[key]) charts[key].destroy();
+    charts[key] = new Chart(canvas, {
+      type: 'line',
+      data: {
+        labels,
+        datasets: [
+          lineDataset('L1', s1r.map(x => x.value), C.phaseL1),
+          lineDataset('L2', s2r.map(x => x.value), C.phaseL2),
+          lineDataset('L3', s3r.map(x => x.value), C.phaseL3)
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false, animation: { duration: 280 },
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { labels: { color: C.text, boxWidth: 12, font: { size: 11 } } }, tooltip: tooltipConfig() },
+        scales: chartScaleOpts(C, beginAtZero)
+      }
+    });
+  } else {
+    charts[key].data.labels = labels;
+    charts[key].data.datasets[0].data = s1r.map(x => x.value);
+    charts[key].data.datasets[1].data = s2r.map(x => x.value);
+    charts[key].data.datasets[2].data = s3r.map(x => x.value);
+    charts[key].update('none');
+  }
 }
 
 function tooltipConfig() {
@@ -84,44 +286,75 @@ async function loadData() {
   const deviceId = el('deviceSelect').value;
   if (!deviceId) return;
 
-  const C = getChartColors();
-
   try {
-    // Detectar se é medidor trifásico (buscar métricas por fase)
-    const voltage_l1_check = await fetchJSON(metricsUrl(deviceId, 'voltage_l1', 1));
+    // Detectar se é medidor trifásico (capacidade do device, não do período/janela
+    // navegada — sem isso, navegar pra um dia sem dados faria cair no branch
+    // monofásico por engano).
+    const voltage_l1_check = await fetchJSON(`/api/metrics?device_id=${deviceId}&metric=voltage_l1&limit=1`);
     const isThreePhase = voltage_l1_check.length > 0;
 
     let voltageData, currentData, powerData;
 
     let energyData, alarms, switchData;
+    let solarData = null;
     const chartLimit = currentPeriod === '1m' ? 5000 : (currentPeriod === '1w' ? 2500 : 500);
 
     if (isThreePhase) {
       // Buscar métricas trifásicas
-      const [v1, v2, v3, i1, i2, i3, p1, p2, p3, pTotal, eData, alarmsData, swData] = await Promise.all([
-        fetchJSON(metricsUrl(deviceId, 'voltage_l1', chartLimit)),
-        fetchJSON(metricsUrl(deviceId, 'voltage_l2', chartLimit)),
-        fetchJSON(metricsUrl(deviceId, 'voltage_l3', chartLimit)),
-        fetchJSON(metricsUrl(deviceId, 'current_l1', chartLimit)),
-        fetchJSON(metricsUrl(deviceId, 'current_l2', chartLimit)),
-        fetchJSON(metricsUrl(deviceId, 'current_l3', chartLimit)),
-        fetchJSON(metricsUrl(deviceId, 'power_l1', chartLimit)),
-        fetchJSON(metricsUrl(deviceId, 'power_l2', chartLimit)),
-        fetchJSON(metricsUrl(deviceId, 'power_l3', chartLimit)),
-        fetchJSON(metricsUrl(deviceId, 'power_total', chartLimit)),
-        fetchJSON(metricsUrl(deviceId, 'energy_wh', chartLimit)),
-        fetchJSON(`/api/alarms/events?device_id=${deviceId}&limit=20`),
-        fetchJSON(metricsUrl(deviceId, 'switch_status', chartLimit))
+      const [[v1, v2, v3, i1, i2, i3, p1, p2, p3, pTotal, eData, alarmsData, swData,
+              pExport, pImport, iExport, iImport, eExported, eImported],
+             [pImpL1, pImpL2, pImpL3, pExpL1, pExpL2, pExpL3,
+              iImpL1, iImpL2, iImpL3, iExpL1, iExpL2, iExpL3]] = await Promise.all([
+        Promise.all([
+          fetchJSON(metricsUrl(deviceId, 'voltage_l1', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'voltage_l2', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'voltage_l3', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'current_l1', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'current_l2', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'current_l3', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'power_l1', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'power_l2', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'power_l3', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'power_total', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'energy_wh', chartLimit)),
+          fetchJSON(`/api/alarms/events?device_id=${deviceId}&limit=20`),
+          fetchJSON(metricsUrl(deviceId, 'switch_status', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'power_export_total', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'power_import_total', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'current_export_total', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'current_import_total', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'energy_exported_total', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'energy_imported_total', chartLimit))
+        ]),
+        Promise.all([
+          fetchJSON(metricsUrl(deviceId, 'power_import_l1', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'power_import_l2', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'power_import_l3', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'power_export_l1', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'power_export_l2', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'power_export_l3', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'current_import_l1', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'current_import_l2', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'current_import_l3', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'current_export_l1', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'current_export_l2', chartLimit)),
+          fetchJSON(metricsUrl(deviceId, 'current_export_l3', chartLimit))
+        ])
       ]);
 
       // Armazenar dados por fase para uso posterior
-      window.phaseData = { v1, v2, v3, i1, i2, i3, p1, p2, p3, pTotal };
+      window.phaseData = {
+        v1, v2, v3, i1, i2, i3, p1, p2, p3, pTotal,
+        pImpL1, pImpL2, pImpL3, pExpL1, pExpL2, pExpL3,
+        iImpL1, iImpL2, iImpL3, iExpL1, iExpL2, iExpL3
+      };
       voltageData = v1; // usar L1 como referência para status
       currentData = i1;
       powerData = pTotal.length > 0 ? pTotal : p1;
       energyData = eData;
       alarms = alarmsData;
       switchData = swData;
+      solarData = { pExport, pImport, iExport, iImport, eExported, eImported };
 
     } else {
       // Buscar métricas monofásicas (formato antigo) + switch Tuya
@@ -140,6 +373,72 @@ async function loadData() {
       alarms = alarmsData;
       switchData = swData;
       window.phaseData = null;
+    }
+
+    fullRange = computeFullRange([voltageData, powerData, energyData]);
+    updateZoomLabel();
+
+    rawCache = {
+      deviceId, isThreePhase,
+      voltageData, currentData, powerData, energyData, alarms, switchData,
+      phaseData: isThreePhase ? window.phaseData : null,
+      solarData
+    };
+
+    renderFromCache();
+  } catch (error) {
+    console.error('Erro ao carregar dados:', error);
+  }
+}
+
+function renderFromCache() {
+  if (!rawCache) return;
+  const C = getChartColors();
+  const { deviceId, isThreePhase, alarms } = rawCache;
+
+  try {
+    const voltageData = filterWindow(rawCache.voltageData);
+    const currentData = filterWindow(rawCache.currentData);
+    const powerData = filterWindow(rawCache.powerData);
+    const energyData = filterWindow(rawCache.energyData);
+    const switchData = filterWindow(rawCache.switchData);
+
+    if (isThreePhase && rawCache.phaseData) {
+      window.phaseData = {};
+      Object.keys(rawCache.phaseData).forEach((k) => {
+        window.phaseData[k] = filterWindow(rawCache.phaseData[k]);
+      });
+    } else {
+      window.phaseData = null;
+    }
+
+    const cardSolar = el('cardSolar');
+    if (isThreePhase && rawCache.solarData && cardSolar) {
+      const sd = rawCache.solarData;
+      const pExport = filterWindow(sd.pExport);
+      const pImport = filterWindow(sd.pImport);
+      const iExport = filterWindow(sd.iExport);
+      const iImport = filterWindow(sd.iImport);
+      const eExported = filterWindow(sd.eExported);
+      const eImported = filterWindow(sd.eImported);
+      if (pExport.length || pImport.length) {
+        cardSolar.style.display = '';
+        const wPower = pExport[0]?.value ?? 0;
+        const wImport = pImport[0]?.value ?? 0;
+        const aExport = iExport[0]?.value ?? 0;
+        const aImport = iImport[0]?.value ?? 0;
+        const kwhExported = eExported[0]?.value ?? 0;
+        const kwhImported = eImported[0]?.value ?? 0;
+        el('liveGridSolar').innerHTML = `
+          <span style="color:var(--warning,#f0a020)">Solar:</span> ${wPower.toFixed(0)}W / ${aExport.toFixed(2)}A<br>
+          <span style="color:var(--text-muted)">Rede:</span> ${wImport.toFixed(0)}W / ${aImport.toFixed(2)}A<br>
+          <span style="font-size:11px;color:var(--text-faint)">Acum.: ${kwhExported.toFixed(2)} kWh injet. / ${kwhImported.toFixed(2)} kWh cons.</span>
+        `;
+      } else {
+        cardSolar.style.display = 'none';
+      }
+    } else if (cardSolar) {
+      cardSolar.style.display = 'none';
     }
 
     const hasEnergyMetrics = voltageData.length > 0 || currentData.length > 0 || powerData.length > 0 || energyData.length > 0;
@@ -349,19 +648,16 @@ async function loadData() {
           data: {
             labels: vLabels,
             datasets: [
-              { label: 'L1', data: v1_series.map(x => x.value), borderColor: C.phaseL1, backgroundColor: hexToRgba(C.phaseL1, 0.15), tension: 0.4, borderWidth: 3 },
-              { label: 'L2', data: v2_series.map(x => x.value), borderColor: C.phaseL2, backgroundColor: hexToRgba(C.phaseL2, 0.12), tension: 0.4, borderWidth: 3 },
-              { label: 'L3', data: v3_series.map(x => x.value), borderColor: C.phaseL3, backgroundColor: hexToRgba(C.phaseL3, 0.12), tension: 0.4, borderWidth: 3 }
+              lineDataset('L1', v1_series.map(x => x.value), C.phaseL1),
+              lineDataset('L2', v2_series.map(x => x.value), C.phaseL2),
+              lineDataset('L3', v3_series.map(x => x.value), C.phaseL3)
             ]
           },
           options: {
-            responsive: true, maintainAspectRatio: false,
+            responsive: true, maintainAspectRatio: false, animation: { duration: 280 },
             interaction: { mode: 'index', intersect: false },
-            plugins: { legend: { labels: { color: C.text } }, tooltip: tooltipConfig() },
-            scales: {
-              x: { ticks: { color: C.textMuted }, grid: { color: C.grid } },
-              y: { beginAtZero: false, ticks: { color: C.textMuted }, grid: { color: C.gridStrong } }
-            }
+            plugins: { legend: { labels: { color: C.text, boxWidth: 12, font: { size: 11 } } }, tooltip: tooltipConfig() },
+            scales: chartScaleOpts(C, false, { min: 0, max: 270 })
           }
         });
       } else {
@@ -380,19 +676,16 @@ async function loadData() {
           data: {
             labels: iLabels,
             datasets: [
-              { label: 'L1', data: i1_series.map(x => x.value), borderColor: C.phaseL1, backgroundColor: hexToRgba(C.phaseL1, 0.15), tension: 0.4, borderWidth: 3 },
-              { label: 'L2', data: i2_series.map(x => x.value), borderColor: C.phaseL2, backgroundColor: hexToRgba(C.phaseL2, 0.12), tension: 0.4, borderWidth: 3 },
-              { label: 'L3', data: i3_series.map(x => x.value), borderColor: C.phaseL3, backgroundColor: hexToRgba(C.phaseL3, 0.12), tension: 0.4, borderWidth: 3 }
+              lineDataset('L1', i1_series.map(x => x.value), C.phaseL1),
+              lineDataset('L2', i2_series.map(x => x.value), C.phaseL2),
+              lineDataset('L3', i3_series.map(x => x.value), C.phaseL3)
             ]
           },
           options: {
-            responsive: true, maintainAspectRatio: false,
+            responsive: true, maintainAspectRatio: false, animation: { duration: 280 },
             interaction: { mode: 'index', intersect: false },
-            plugins: { legend: { labels: { color: C.text } }, tooltip: tooltipConfig() },
-            scales: {
-              x: { ticks: { color: C.textMuted }, grid: { color: C.grid } },
-              y: { beginAtZero: true, ticks: { color: C.textMuted }, grid: { color: C.gridStrong } }
-            }
+            plugins: { legend: { labels: { color: C.text, boxWidth: 12, font: { size: 11 } } }, tooltip: tooltipConfig() },
+            scales: chartScaleOpts(C, true)
           }
         });
       } else {
@@ -411,19 +704,16 @@ async function loadData() {
           data: {
             labels: pLabels,
             datasets: [
-              { label: 'L1', data: p1_series.map(x => x.value), borderColor: C.phaseL1, backgroundColor: hexToRgba(C.phaseL1, 0.15), tension: 0.4, borderWidth: 3 },
-              { label: 'L2', data: p2_series.map(x => x.value), borderColor: C.phaseL2, backgroundColor: hexToRgba(C.phaseL2, 0.12), tension: 0.4, borderWidth: 3 },
-              { label: 'L3', data: p3_series.map(x => x.value), borderColor: C.phaseL3, backgroundColor: hexToRgba(C.phaseL3, 0.12), tension: 0.4, borderWidth: 3 }
+              lineDataset('L1', p1_series.map(x => x.value), C.phaseL1),
+              lineDataset('L2', p2_series.map(x => x.value), C.phaseL2),
+              lineDataset('L3', p3_series.map(x => x.value), C.phaseL3)
             ]
           },
           options: {
-            responsive: true, maintainAspectRatio: false,
+            responsive: true, maintainAspectRatio: false, animation: { duration: 280 },
             interaction: { mode: 'index', intersect: false },
-            plugins: { legend: { labels: { color: C.text } }, tooltip: tooltipConfig() },
-            scales: {
-              x: { ticks: { color: C.textMuted }, grid: { color: C.grid } },
-              y: { beginAtZero: false, ticks: { color: C.textMuted }, grid: { color: C.gridStrong } }
-            }
+            plugins: { legend: { labels: { color: C.text, boxWidth: 12, font: { size: 11 } } }, tooltip: tooltipConfig() },
+            scales: chartScaleOpts(C, false)
           }
         });
       } else {
@@ -434,8 +724,38 @@ async function loadData() {
         charts.power.update('none');
       }
 
+      // Gráficos separados de consumo (rede) x injeção (solar), por fase.
+      // Só existem para devices que já fornecem power_import_*/power_export_*
+      // (ex.: disjuntor trifásico Tuya "tdq"); ausência = sem geração solar cadastrada.
+      const pd = window.phaseData;
+      const hasSplit = ['pImpL1', 'pImpL2', 'pImpL3', 'pExpL1', 'pExpL2', 'pExpL3']
+        .some((k) => pd[k] && pd[k].length > 0);
+
+      el('cardCurrentCombined').style.display = hasSplit ? 'none' : '';
+      el('cardPowerCombined').style.display = hasSplit ? 'none' : '';
+      el('cardCurrentImport').style.display = hasSplit ? '' : 'none';
+      el('cardCurrentExport').style.display = hasSplit ? '' : 'none';
+      el('cardPowerImport').style.display = hasSplit ? '' : 'none';
+      el('cardPowerExport').style.display = hasSplit ? '' : 'none';
+
+      if (hasSplit) {
+        buildPhaseChart('powerImport', 'chartPowerImport', pd.pImpL1, pd.pImpL2, pd.pImpL3, true);
+        buildPhaseChart('powerExport', 'chartPowerExport', pd.pExpL1, pd.pExpL2, pd.pExpL3, true);
+        buildPhaseChart('currentImport', 'chartCurrentImport', pd.iImpL1, pd.iImpL2, pd.iImpL3, true);
+        buildPhaseChart('currentExport', 'chartCurrentExport', pd.iExpL1, pd.iExpL2, pd.iExpL3, true);
+      } else {
+        ['powerImport', 'powerExport', 'currentImport', 'currentExport'].forEach((k) => {
+          if (charts[k]) { charts[k].destroy(); charts[k] = null; }
+        });
+      }
+
     } else {
       // Gráficos monofásicos (formato original)
+      ['cardCurrentImport', 'cardCurrentExport', 'cardPowerImport', 'cardPowerExport'].forEach((id) => {
+        el(id).style.display = 'none';
+      });
+      el('cardCurrentCombined').style.display = '';
+      el('cardPowerCombined').style.display = '';
       vSeries = voltageData.slice().reverse();
       iSeries = currentData.slice().reverse();
       pSeries = powerData.slice().reverse();
@@ -445,7 +765,7 @@ async function loadData() {
       const pLabels = pSeries.map(x => new Date(x.timestamp).toLocaleTimeString());
 
       if (!charts.voltage) {
-        charts.voltage = createChart('chartVoltage', 'Tensão (V)', C.voltage);
+        charts.voltage = createChart('chartVoltage', 'Tensão (V)', C.voltage, { min: 0, max: 270 });
         charts.current = createChart('chartCurrent', 'Corrente (A)', C.current);
         charts.power = createChart('chartPower', 'Potência (W)', C.power);
       }
@@ -468,72 +788,65 @@ async function loadData() {
       || (swSeries.length && swSeries)
       || (eSeries.length && eSeries)
       || [];
-    const multiLabels = multiSource.slice(0, 80).map(x => new Date(x.timestamp).toLocaleTimeString());
+    const multiSlice = multiSource.slice(0, 80);
+    const multiLabels = multiSlice.map(x => new Date(x.timestamp).toLocaleTimeString());
+    const multiDayEl = el('chartMultiDay');
+    if (multiDayEl) {
+      if (multiSlice.length) {
+        const start = new Date(multiSlice[0].timestamp);
+        const end = new Date(multiSlice[multiSlice.length - 1].timestamp);
+        const fmt = (d) => d.toLocaleDateString('pt-BR', { weekday: 'long', day: '2-digit', month: '2-digit', year: 'numeric' });
+        const startDay = fmt(start);
+        const endDay = fmt(end);
+        multiDayEl.textContent = startDay === endDay
+          ? `Dados de ${startDay}`
+          : `Dados de ${startDay} a ${endDay}`;
+      } else {
+        multiDayEl.textContent = '';
+      }
+    }
     const multiDatasets = [];
     if (vSeries.length) {
-      multiDatasets.push({
-        label: 'Tensão (V)',
-        data: vSeries.slice(0, 80).map(x => x.value),
-        borderColor: C.voltage,
-        backgroundColor: hexToRgba(C.voltage, 0.12),
-        yAxisID: 'yV',
-        tension: 0.4,
-        borderWidth: 3
-      });
+      multiDatasets.push(lineDataset('Tensão (V)', vSeries.slice(0, 80).map(x => x.value), C.voltage, {
+        more: { yAxisID: 'yV' }
+      }));
     }
     if (iSeries.length) {
-      multiDatasets.push({
-        label: 'Corrente (A)',
-        data: iSeries.slice(0, 80).map(x => x.value),
-        borderColor: C.current,
-        backgroundColor: hexToRgba(C.current, 0.12),
-        yAxisID: 'yI',
-        tension: 0.4,
-        borderWidth: 3
-      });
+      multiDatasets.push(lineDataset('Corrente (A)', iSeries.slice(0, 80).map(x => x.value), C.current, {
+        more: { yAxisID: 'yI' }
+      }));
     }
     if (pSeries.length) {
-      multiDatasets.push({
-        label: 'Potência (W)',
-        data: pSeries.slice(0, 80).map(x => x.value),
-        borderColor: C.power,
-        backgroundColor: hexToRgba(C.power, 0.12),
-        yAxisID: 'yP',
-        tension: 0.4,
-        borderWidth: 3
-      });
+      multiDatasets.push(lineDataset('Potência (W)', pSeries.slice(0, 80).map(x => x.value), C.power, {
+        more: { yAxisID: 'yP' }
+      }));
     }
     if (swSeries.length) {
-      multiDatasets.push({
-        label: 'Switch (0/1)',
-        data: swSeries.slice(0, 80).map(x => x.value),
-        borderColor: C.switch,
-        backgroundColor: hexToRgba(C.switch, 0.15),
-        yAxisID: 'ySw',
+      multiDatasets.push(lineDataset('Switch (0/1)', swSeries.slice(0, 80).map(x => x.value), C.switch, {
         tension: 0,
-        stepped: true,
-        borderWidth: 3,
-        pointRadius: 3
-      });
+        pointRadius: 2,
+        fillAlpha: 0.08,
+        more: { yAxisID: 'ySw', stepped: true }
+      }));
     }
     if (!multiDatasets.length && eSeries.length) {
-      multiDatasets.push({
-        label: 'Energia (Wh)',
-        data: eSeries.slice(0, 80).map(x => x.value),
-        borderColor: C.energy,
-        backgroundColor: hexToRgba(C.energy, 0.15),
-        yAxisID: 'yP',
-        tension: 0.4,
-        borderWidth: 3
-      });
+      multiDatasets.push(lineDataset('Energia (Wh)', eSeries.slice(0, 80).map(x => x.value), C.energy, {
+        fill: true,
+        fillAlpha: 0.14,
+        more: { yAxisID: 'yP' }
+      }));
     }
 
+    const axisTick = (color) => ({ color, maxTicksLimit: 5, font: { size: 10 } });
     const multiScales = {
-      x: { ticks: { color: C.textMuted }, grid: { color: C.grid } },
-      yV: { type: 'linear', position: 'left', display: vSeries.length > 0, title: { display: true, text: 'V', color: C.voltage }, ticks: { color: C.voltage }, grid: { color: C.grid } },
-      yI: { type: 'linear', position: 'right', display: iSeries.length > 0, title: { display: true, text: 'A', color: C.current }, ticks: { color: C.current }, grid: { drawOnChartArea: false } },
-      yP: { type: 'linear', position: 'right', display: pSeries.length > 0 || eSeries.length > 0, title: { display: true, text: 'W', color: C.power }, ticks: { color: C.power }, grid: { drawOnChartArea: false } },
-      ySw: { type: 'linear', position: 'right', display: swSeries.length > 0, min: 0, max: 1.2, title: { display: true, text: 'SW', color: C.switch }, ticks: { color: C.switch, stepSize: 1 }, grid: { drawOnChartArea: false } }
+      x: {
+        ticks: { color: C.textMuted, maxTicksLimit: 8, maxRotation: 0, autoSkip: true, font: { size: 10 } },
+        grid: { color: C.grid, drawBorder: false }
+      },
+      yV: { type: 'linear', position: 'left', display: vSeries.length > 0, min: 0, max: 270, title: { display: true, text: 'V', color: C.voltage, font: { size: 11 } }, ticks: axisTick(C.voltage), grid: { color: C.grid, drawBorder: false } },
+      yI: { type: 'linear', position: 'right', display: iSeries.length > 0, title: { display: true, text: 'A', color: C.current, font: { size: 11 } }, ticks: axisTick(C.current), grid: { drawOnChartArea: false } },
+      yP: { type: 'linear', position: 'right', display: pSeries.length > 0 || eSeries.length > 0, title: { display: true, text: 'W', color: C.power, font: { size: 11 } }, ticks: axisTick(C.power), grid: { drawOnChartArea: false } },
+      ySw: { type: 'linear', position: 'right', display: swSeries.length > 0, min: 0, max: 1.2, title: { display: true, text: 'SW', color: C.switch, font: { size: 11 } }, ticks: { color: C.switch, stepSize: 1, font: { size: 10 } }, grid: { drawOnChartArea: false } }
     };
 
     if (charts.multi) {
@@ -549,9 +862,10 @@ async function loadData() {
         options: {
           responsive: true,
           maintainAspectRatio: false,
+          animation: { duration: 280 },
           interaction: { mode: 'index', intersect: false },
           plugins: {
-            legend: { display: true, labels: { color: C.text } },
+            legend: { display: true, labels: { color: C.text, boxWidth: 12, font: { size: 11 } } },
             title: { display: false },
             tooltip: tooltipConfig()
           },
@@ -580,7 +894,7 @@ async function loadData() {
       });
     }
   } catch (error) {
-    console.error('Erro ao carregar dados:', error);
+    console.error('Erro ao renderizar dados:', error);
   }
 }
 
@@ -765,8 +1079,21 @@ window.addEventListener('DOMContentLoaded', () => {
   el('deviceSelect').addEventListener('change', () => {
     updateDeviceStatus();
     loadAlarmRules();
+    resetPeriodNav();
+    updatePeriodRangeLabel();
     loadData();
   });
+
+  el('zoomFrom').addEventListener('input', applyZoomFromSliders);
+  el('zoomTo').addEventListener('input', applyZoomFromSliders);
+  el('periodPrevBtn').addEventListener('click', () => navigatePeriod(-1));
+  el('periodNextBtn').addEventListener('click', () => navigatePeriod(1));
+  el('periodTodayBtn').addEventListener('click', () => {
+    resetPeriodNav();
+    updatePeriodRangeLabel();
+    loadData();
+  });
+  el('zoomResetBtn').addEventListener('click', resetZoom);
   el('configBtn').addEventListener('click', openConfigModal);
   el('configModal').querySelector('.close').addEventListener('click', closeConfigModal);
   el('testBtn').addEventListener('click', testConnection);
@@ -780,6 +1107,8 @@ window.addEventListener('DOMContentLoaded', () => {
       document.querySelectorAll('.period-btn').forEach((b) => b.classList.remove('active'));
       btn.classList.add('active');
       currentPeriod = btn.dataset.period || '1d';
+      resetPeriodNav();
+      updatePeriodRangeLabel();
       destroyAllCharts();
       loadData();
     });
@@ -797,9 +1126,12 @@ window.addEventListener('DOMContentLoaded', () => {
   };
 
   updateDeviceStatus();
+  updatePeriodRangeLabel();
   loadAlarmRules();
   loadData();
-  setInterval(loadData, 30000);
+  setInterval(() => {
+    if (anchorEnd == null) loadData(); // não faz sentido "auto-atualizar" um período passado fixo
+  }, 30000);
 });
 
 

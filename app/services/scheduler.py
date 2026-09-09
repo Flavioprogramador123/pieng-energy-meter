@@ -11,6 +11,12 @@ class PollingScheduler:
     def add_job(self, func: Callable, seconds: int, *, id: str):
         self.scheduler.add_job(func, IntervalTrigger(seconds=seconds), id=id, replace_existing=True)
 
+    def remove_job(self, id: str) -> None:
+        try:
+            self.scheduler.remove_job(id)
+        except Exception:
+            pass
+
     def start(self):
         if not self.scheduler.running:
             self.scheduler.start()

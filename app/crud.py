@@ -85,12 +85,15 @@ def list_measurements(
     metric: str | None = None,
     limit: int = 1000,
     since=None,
+    until=None,
 ) -> list[models.Measurement]:
     q = db.query(models.Measurement).filter(models.Measurement.device_id == device_id)
     if metric:
         q = q.filter(models.Measurement.metric == metric)
     if since is not None:
         q = q.filter(models.Measurement.timestamp >= since)
+    if until is not None:
+        q = q.filter(models.Measurement.timestamp <= until)
     return q.order_by(models.Measurement.timestamp.desc()).limit(limit).all()
 
 

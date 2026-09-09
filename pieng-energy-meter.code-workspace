@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../pieng_postgres"
+		}
+	],
+	"settings": {}
+}

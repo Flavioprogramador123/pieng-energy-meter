@@ -2,7 +2,12 @@
 
 > **Objetivo**: Configurar Fidelco com Debian 11 como servidor central robusto  
 > **Data**: 18/10/2025  
-> **Status**: 📋 Aguardando execução
+> **Status**: 📋 Aguardando execução (mini PC / HD em casa ainda não provisionado)
+
+> **Atualização 2026-09-09 (escritório):** enquanto o Fidelco/mini PC não existe, o teste
+> de storage está no HD `K:\STORAGE` com **Postgres nativo 17** (não Docker).
+> Ver `docs/SETUP_POSTGRES_NATIVO_K.md` e `CHANGELOG.md`. O `docker-compose.yml`
+> do Energy Meter foi **preservado** para reutilizar neste setup no futuro.
 
 ---
 

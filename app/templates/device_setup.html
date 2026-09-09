@@ -5,6 +5,36 @@
 {% block content %}
   <div id="alert" class="alert"></div>
 
+  <section class="card tuya-discover-card" id="tuya-discover-card">
+    <div class="tuya-discover-head">
+      <div>
+        <h2 style="margin:0 0 4px">Tuya na nuvem — incluir no projeto</h2>
+        <p class="muted" style="margin:0;font-size:13px">
+          Mesmo usuário/projeto Tuya do <code>.env</code>. Novos medidores (ex.: corrente na saída do inversor em casa)
+          aparecem aqui para inclusão com 1 clique.
+        </p>
+      </div>
+      <button type="button" class="btn btn-primary" id="btn-tuya-discover" onclick="discoverTuyaCloud()">Procurar na nuvem</button>
+    </div>
+    <div id="tuya-discover-status" class="muted" style="margin-top:10px;font-size:12px"></div>
+    <div class="table-wrap" style="margin-top:12px">
+      <table class="data-table" id="tuya-discover-table">
+        <thead>
+          <tr>
+            <th>Nome</th>
+            <th>Categoria</th>
+            <th>Papel sugerido</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="5" class="muted">Clique em “Procurar na nuvem”.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
   <div id="engines-selection">
     <div class="setup-grid">
       <div class="engine-card" onclick="selectEngine('tuya')">
@@ -324,5 +354,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-  <script src="/static/js/device_setup.js"></script>
+  <script src="/static/js/device_setup.js?v=2"></script>
 {% endblock %}

@@ -301,14 +301,18 @@ de teste + script de migração, redesign visual completo (tema "painel de
 instrumentação" + claro/escuro), Cpk real com limites de especificação e
 comparação de período (dia/semana/mês) na Análise Temporal.
 
+**Flush / storage (noite++):** espelho Postgres no `K:` com flush a cada **30 min**
+e teto de cache SQLite **200 MB** (~3 dias / ~3 aparelhos em teste). Config em
+`/api/db` → `data/runtime_settings.json`. Hot path continua SQLite.
+
 **Antes de continuar o trabalho**: leia `CHANGELOG.md` (relato completo) e
 `.claude/session_context.json` (estado estruturado: devices ativos, dívidas
 técnicas conhecidas, próximos passos combinados com o usuário). Resumo rápido:
-- Único device Tuya ativo agora é `medidorCASA` (id=3, trifásico, real).
-- Banco continua SQLite em produção; existe uma cópia de teste em Postgres local
-  (`docker-compose.yml` + `migrate_sqlite_to_postgres.py`), não é a fonte de verdade.
-- Servidor uvicorn ao vivo (Python global, `--reload`) está coletando dados reais
-  — não derrubar sem avisar o usuário.
+- Único device Tuya ativo agora é `medidorCASA` (id=5 na migração, trifásico, real).
+- Banco continua SQLite em produção; Postgres nativo no `K:` é espelho (flush 30 min).
+- Existe também caminho Docker preservado (`docker-compose.yml`, porta 5433).
+- Servidor uvicorn ao vivo (venv, `--reload`, tipicamente **:8001**) está coletando
+  dados reais — não derrubar sem avisar o usuário.
 
 ---
 
