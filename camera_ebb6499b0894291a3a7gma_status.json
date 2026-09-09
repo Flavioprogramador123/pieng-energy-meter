@@ -1,0 +1,43 @@
+{
+  "result": [
+    {
+      "code": "basic_flip",
+      "value": false
+    },
+    {
+      "code": "basic_osd",
+      "value": true
+    },
+    {
+      "code": "motion_sensitivity",
+      "value": "1"
+    },
+    {
+      "code": "basic_nightvision",
+      "value": "0"
+    },
+    {
+      "code": "movement_detect_pic",
+      "value": "$"
+    },
+    {
+      "code": "motion_interval",
+      "value": "1"
+    },
+    {
+      "code": "motion_switch",
+      "value": true
+    },
+    {
+      "code": "humanoid_filter",
+      "value": true
+    },
+    {
+      "code": "alarm_message",
+      "value": "eyJ2IjoiMi4wIiwiZmlsZXMiOlt7ImRhdGEiOiI3YmNjNjAzNTlhOThjODkyOGMxNWExNjNmNmI5ODEzNWM5NmU3NWEzNWUxNGI4MjM4OTdlMWRkNzlhNjhiMDg5NDA3NzgxMTY1YzllMjg1OWZiMzNkN2RkYTQzYTVhYzczZGI2NTgyNTBkNWFmYTMzNTk1OTA0MjNiZDZkNjY5MjJlZDIwMzhkYTFmYTkyNTE3MWNiMjczYjY1MGY1Y2U1ZDc3NzA2ODI5NTc5N2JlMTVmZTEyOTU1NDNhNTg1OTIiLCJrZXlJZCI6ImRlZmF1bHQiLCJpdiI6IjE3ZDgzMTA3NDMxN2UyY2M2ZDYxMzc2ZjhjZWE5OTU4In1dLCJjbWQiOiJpcGNfaHVtYW4iLCJ0eXBlIjoiaW1hZ2UifQ=="
+    }
+  ],
+  "success": true,
+  "t": 1760834761446,
+  "tid": "fc1aefccac8411f09d3fa6446417155a"
+}

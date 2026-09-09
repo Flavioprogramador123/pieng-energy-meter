@@ -1,0 +1,19 @@
+{
+  "result": [
+    {
+      "code": "switch_1",
+      "value": true
+    },
+    {
+      "code": "countdown_1",
+      "value": 0
+    },
+    {
+      "code": "relay_status",
+      "value": "power_on"
+    }
+  ],
+  "success": true,
+  "t": 1760833704381,
+  "tid": "861081b0ac8211f088b28e8a1f14b96a"
+}

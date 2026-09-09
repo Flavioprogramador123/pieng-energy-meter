@@ -1,0 +1,34 @@
+{
+  "timestamp": "2025-10-18T21:27:29.538614",
+  "total_devices": 35,
+  "devices_tested": 2,
+  "results": [
+    {
+      "device_id": "04708305d8bfc017c02e",
+      "device_name": "Controle ekaza",
+      "online": false,
+      "timestamp": "2025-10-18T21:27:25.445764",
+      "data": []
+    },
+    {
+      "device_id": "eb9a1c787c60d712fazces",
+      "device_name": "PC473_OUYOU",
+      "online": false,
+      "timestamp": "2025-10-18T21:27:29.536615",
+      "data": [
+        {
+          "code": "switch_1",
+          "value": false
+        },
+        {
+          "code": "fault",
+          "value": 0
+        },
+        {
+          "code": "relay_status",
+          "value": "2"
+        }
+      ]
+    }
+  ]
+}

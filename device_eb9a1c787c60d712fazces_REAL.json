@@ -1,0 +1,19 @@
+{
+  "result": [
+    {
+      "code": "switch_1",
+      "value": false
+    },
+    {
+      "code": "fault",
+      "value": 0
+    },
+    {
+      "code": "relay_status",
+      "value": "2"
+    }
+  ],
+  "success": true,
+  "t": 1760833648808,
+  "tid": "64f232daac8211f0aa17f64ffbedba32"
+}

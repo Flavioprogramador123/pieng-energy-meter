@@ -1,0 +1,63 @@
+{
+  "result": [
+    {
+      "code": "switch_1",
+      "value": true
+    },
+    {
+      "code": "countdown_1",
+      "value": 0
+    },
+    {
+      "code": "add_ele",
+      "value": 182
+    },
+    {
+      "code": "cur_current",
+      "value": 0
+    },
+    {
+      "code": "cur_power",
+      "value": 0
+    },
+    {
+      "code": "cur_voltage",
+      "value": 1610
+    },
+    {
+      "code": "voltage_coe",
+      "value": 642
+    },
+    {
+      "code": "electric_coe",
+      "value": 29558
+    },
+    {
+      "code": "power_coe",
+      "value": 17318
+    },
+    {
+      "code": "electricity_coe",
+      "value": 2410
+    },
+    {
+      "code": "fault",
+      "value": 0
+    },
+    {
+      "code": "relay_status",
+      "value": "last"
+    },
+    {
+      "code": "cycle_time",
+      "value": ""
+    },
+    {
+      "code": "random_time",
+      "value": ""
+    }
+  ],
+  "success": true,
+  "t": 1760833700173,
+  "tid": "838dbc2aac8211f0b546be625d6272c7"
+}

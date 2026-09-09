@@ -1,0 +1,92 @@
+[
+  {
+    "device_id": "eb12907d3f923984f1wntb",
+    "device_name": "WIFI dual meter",
+    "success": false,
+    "reason": "No data"
+  },
+  {
+    "device_id": "ebbef04296002afe3ecxcg",
+    "device_name": "Wifi Plug",
+    "success": true,
+    "data_points": 14,
+    "data": [
+      {
+        "code": "switch_1",
+        "value": true
+      },
+      {
+        "code": "countdown_1",
+        "value": 0
+      },
+      {
+        "code": "add_ele",
+        "value": 182
+      },
+      {
+        "code": "cur_current",
+        "value": 0
+      },
+      {
+        "code": "cur_power",
+        "value": 0
+      },
+      {
+        "code": "cur_voltage",
+        "value": 1610
+      },
+      {
+        "code": "voltage_coe",
+        "value": 642
+      },
+      {
+        "code": "electric_coe",
+        "value": 29558
+      },
+      {
+        "code": "power_coe",
+        "value": 17318
+      },
+      {
+        "code": "electricity_coe",
+        "value": 2410
+      },
+      {
+        "code": "fault",
+        "value": 0
+      },
+      {
+        "code": "relay_status",
+        "value": "last"
+      },
+      {
+        "code": "cycle_time",
+        "value": ""
+      },
+      {
+        "code": "random_time",
+        "value": ""
+      }
+    ]
+  },
+  {
+    "device_id": "73634132ec94cb8039a6",
+    "device_name": "Dvr",
+    "success": true,
+    "data_points": 3,
+    "data": [
+      {
+        "code": "switch_1",
+        "value": true
+      },
+      {
+        "code": "countdown_1",
+        "value": 0
+      },
+      {
+        "code": "relay_status",
+        "value": "power_on"
+      }
+    ]
+  }
+]
