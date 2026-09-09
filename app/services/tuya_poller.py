@@ -28,7 +28,7 @@ def get_tuya_client():
         region = settings.tuya_api_region
         
         if not access_id or not access_secret:
-            print("⚠️  Credenciais Tuya não configuradas")
+            print("[WARN] Credenciais Tuya nao configuradas")
             return None
         
         cloud = tinytuya.Cloud(
@@ -40,10 +40,10 @@ def get_tuya_client():
         return cloud
     
     except ImportError:
-        print("❌ tinytuya não instalado")
+        print("[ERR] tinytuya nao instalado")
         return None
     except Exception as e:
-        print(f"❌ Erro ao conectar Tuya: {e}")
+        print(f"[ERR] Erro ao conectar Tuya: {e}")
         return None
 
 
@@ -106,13 +106,13 @@ def poll_tuya_devices():
     
     APENAS DADOS REAIS!
     """
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] 🔄 Iniciando polling Tuya...")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Iniciando polling Tuya...")
     
     # Obter cliente Tuya
     cloud = get_tuya_client()
     
     if not cloud:
-        print("   ⚠️  Cliente Tuya não disponível")
+        print("   [WARN] Cliente Tuya nao disponivel")
         return
     
     # Obter sessão do banco
@@ -126,10 +126,10 @@ def poll_tuya_devices():
         ).all()
         
         if not tuya_devices:
-            print("   ℹ️  Nenhum dispositivo Tuya ativo")
+            print("   [INFO] Nenhum dispositivo Tuya ativo")
             return
         
-        print(f"   📊 {len(tuya_devices)} dispositivo(s) Tuya para coletar")
+        print(f"   [INFO] {len(tuya_devices)} dispositivo(s) Tuya para coletar")
         
         measurements_count = 0
         
@@ -141,27 +141,27 @@ def poll_tuya_devices():
                 tuya_device_id = config.get('device_id')
                 
                 if not tuya_device_id:
-                    print(f"   ⚠️  {device.name}: Sem device_id configurado")
+                    print(f"   [WARN] {device.name}: Sem device_id configurado")
                     continue
                 
                 # Ler status do dispositivo
                 status = cloud.getstatus(tuya_device_id)
                 
                 if not status or 'result' not in status:
-                    print(f"   ⚠️  {device.name}: Sem resposta")
+                    print(f"   [WARN] {device.name}: Sem resposta")
                     continue
                 
                 result = status['result']
                 
                 if not result:
-                    print(f"   ℹ️  {device.name}: Sem dados")
+                    print(f"   [INFO] {device.name}: Sem dados")
                     continue
                 
                 # Converter dados
                 metrics = parse_tuya_data(tuya_device_id, result)
                 
                 if not metrics:
-                    print(f"   ⚠️  {device.name}: Nenhuma métrica extraída")
+                    print(f"   [WARN] {device.name}: Nenhuma metrica extraida")
                     continue
                 
                 # Salvar cada métrica
@@ -182,50 +182,49 @@ def poll_tuya_devices():
                     db.add(measurement)
                     measurements_count += 1
                 
-                print(f"   ✅ {device.name}: {len(metrics)} métrica(s) coletadas")
+                print(f"   [OK] {device.name}: {len(metrics)} metrica(s) coletadas")
                 
                 # Log das métricas
                 if 'energy_wh' in metrics:
-                    print(f"      ⚡ Energia: {metrics['energy_wh']/1000:.2f} kWh")
+                    print(f"      Energia: {metrics['energy_wh']/1000:.2f} kWh")
                 if 'voltage' in metrics:
-                    print(f"      📊 Tensão: {metrics['voltage']:.1f} V")
+                    print(f"      Tensao: {metrics['voltage']:.1f} V")
                 if 'current' in metrics:
-                    print(f"      📈 Corrente: {metrics['current']:.3f} A")
+                    print(f"      Corrente: {metrics['current']:.3f} A")
                 if 'power' in metrics:
-                    print(f"      🔋 Potência: {metrics['power']:.1f} W")
+                    print(f"      Potencia: {metrics['power']:.1f} W")
             
             except Exception as e:
-                print(f"   ❌ {device.name}: Erro - {e}")
+                print(f"   [ERR] {device.name}: Erro - {e}")
                 continue
         
         # Commit das medições
         if measurements_count > 0:
             db.commit()
-            print(f"   💾 {measurements_count} medição(ões) salva(s) no banco")
+            print(f"   [OK] {measurements_count} medicao(oes) salva(s) no banco")
         else:
-            print(f"   ℹ️  Nenhuma medição para salvar")
+            print(f"   [INFO] Nenhuma medicao para salvar")
     
     except Exception as e:
-        print(f"   ❌ Erro no polling: {e}")
+        print(f"   [ERR] Erro no polling: {e}")
         db.rollback()
     
     finally:
         db.close()
     
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] ✅ Polling Tuya concluído\n")
+    print(f"[{datetime.now().strftime('%H:%M:%S')}] Polling Tuya concluido\n")
 
 
 if __name__ == "__main__":
     # Teste manual
     print("=" * 80)
-    print("   🧪 TESTE MANUAL - TUYA POLLER")
+    print("   TESTE MANUAL - TUYA POLLER")
     print("=" * 80)
     print()
     
     poll_tuya_devices()
     
     print()
-    print("✅ Teste concluído!")
-    print("   Verifique o banco de dados para ver as medições")
+    print("[OK] Teste concluido!")
+    print("   Verifique o banco de dados para ver as medicoes")
     print()
-
