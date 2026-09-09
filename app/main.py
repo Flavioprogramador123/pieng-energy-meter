@@ -10,6 +10,7 @@ from .services.pollers import poll_modbus_devices, poll_modbus_tcp_devices
 from .services.tuya_poller import poll_tuya_devices
 from .services.runtime_settings import get_runtime_settings
 from .services.postgres_mirror import flush_sqlite_to_postgres
+from .services.instance_lock import acquire_scheduler_lock
 
 
 def create_app() -> FastAPI:
@@ -43,6 +44,8 @@ def create_app() -> FastAPI:
         flush_sqlite_to_postgres()
 
     def reschedule_postgres_flush():
+        if not getattr(app.state, "is_scheduler_owner", False):
+            return  # instância secundária: não é dona do scheduler, nada a reagendar
         rt = get_runtime_settings()
         minutes = int(rt.get("postgres_flush_interval_minutes") or 30)
         seconds = max(60, minutes * 60)
@@ -58,6 +61,14 @@ def create_app() -> FastAPI:
     @app.on_event("startup")
     def on_startup():
         Base.metadata.create_all(bind=engine)
+        app.state.is_scheduler_owner = acquire_scheduler_lock()
+        if not app.state.is_scheduler_owner:
+            print(
+                "[instance_lock] outro processo ja e dono dos pollers/flush neste host "
+                "(data/.scheduler.lock) - esta instancia serve API/Dashboard mas NAO vai "
+                "coletar nem fazer flush, para nao duplicar requisicoes na Tuya/HD."
+            )
+            return
         scheduler.start()
         scheduler.add_job(lambda: poll_modbus_devices(), seconds=30, id="poll_modbus")
         scheduler.add_job(lambda: poll_modbus_tcp_devices(), seconds=30, id="poll_modbus_tcp")

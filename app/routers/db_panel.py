@@ -30,7 +30,7 @@ def db_panel_page(request: Request):
 
 
 @router.get("/db/status")
-def db_status():
+def db_status(request: Request):
     mirror = postgres_mirror.probe_mirror()
     sqlite = {}
     try:
@@ -39,6 +39,13 @@ def db_status():
         sqlite = {"error": str(e).splitlines()[0]}
     runtime = get_runtime_settings()
     return {
+        "is_scheduler_owner": getattr(request.app.state, "is_scheduler_owner", None),
+        "scheduler_owner_note": (
+            "Esta instância é dona dos pollers/flush (coleta hardware + escreve no K:)."
+            if getattr(request.app.state, "is_scheduler_owner", False)
+            else "Esta instância NÃO coleta nem faz flush — outro processo já é o dono "
+                 "(data/.scheduler.lock). Serve API/Dashboard lendo o mesmo SQLite."
+        ),
         "hot_path": "sqlite",
         "hot_explanation": (
             "A coleta e o Dashboard usam o SQLite no NVMe (rápido). "
