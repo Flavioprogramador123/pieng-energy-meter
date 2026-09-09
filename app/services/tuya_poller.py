@@ -6,37 +6,41 @@ APENAS DADOS REAIS!
 import os
 import json
 from datetime import datetime
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional, Tuple
 from sqlalchemy.orm import Session
 from dotenv import load_dotenv
 
 from app.core.db import get_db
 from app.models import Device, Measurement
 from app.core.config import settings
+from app.services import firebase_sync
 
 # Carregar .env
 load_dotenv()
 
 
-def get_tuya_client():
+def get_tuya_client(api_device_id: Optional[str] = None):
     """Retorna cliente Tuya Cloud configurado"""
     try:
         import tinytuya
         
         access_id = settings.tuya_access_id
         access_secret = settings.tuya_access_secret
-        region = settings.tuya_api_region
+        region = settings.tuya_api_region or "us"
         
         if not access_id or not access_secret:
             print("[WARN] Credenciais Tuya nao configuradas")
             return None
         
-        cloud = tinytuya.Cloud(
-            apiRegion=region,
-            apiKey=access_id,
-            apiSecret=access_secret
-        )
+        kwargs = {
+            "apiRegion": region,
+            "apiKey": access_id,
+            "apiSecret": access_secret,
+        }
+        if api_device_id:
+            kwargs["apiDeviceID"] = api_device_id
         
+        cloud = tinytuya.Cloud(**kwargs)
         return cloud
     
     except ImportError:
@@ -45,6 +49,59 @@ def get_tuya_client():
     except Exception as e:
         print(f"[ERR] Erro ao conectar Tuya: {e}")
         return None
+
+
+def fetch_tuya_status(cloud, tuya_device_id: str) -> Tuple[Optional[List], Optional[str]]:
+    """
+    Busca status do device.
+
+    Usa primeiro o "device shadow" (v2.0/cloud/thing/{id}/shadow/properties), que
+    retorna TODOS os data points do dispositivo. O endpoint legado v1.0 (getstatus)
+    fica restrito à lista declarada em /specification, que para algumas categorias
+    (ex.: disjuntores trifásicos "tdq") não inclui os DPs de medição elétrica
+    (voltage_a, current_a, active_power_a, ...) mesmo estando o device reportando-os.
+    """
+    try:
+        shadow = cloud._tuyaplatform(f"cloud/thing/{tuya_device_id}/shadow/properties", ver="v2.0")
+        if isinstance(shadow, dict) and shadow.get("success"):
+            props = shadow.get("result", {}).get("properties")
+            if isinstance(props, list) and props:
+                return props, None
+    except Exception:
+        pass  # cai para o fallback abaixo
+
+    status = cloud.getstatus(tuya_device_id)
+    if isinstance(status, dict) and status.get("success") and isinstance(status.get("result"), list):
+        return status["result"], None
+
+    # Fallback: endpoint clássico (mesmo data center da região)
+    try:
+        alt = cloud._tuyaplatform(f"devices/{tuya_device_id}/status")
+        if isinstance(alt, dict) and alt.get("success") and isinstance(alt.get("result"), list):
+            return alt["result"], None
+        status = alt if isinstance(alt, dict) else status
+    except Exception as e:
+        return None, f"fallback_status_err={e}"
+
+    if not isinstance(status, dict):
+        return None, "resposta invalida da API"
+
+    if status.get("Error") or status.get("Err"):
+        return None, f"{status.get('Err')}: {status.get('Error') or status.get('Payload')}"
+
+    code = status.get("code")
+    msg = status.get("msg") or status.get("message") or "sem detalhe"
+    if code or status.get("success") is False:
+        return None, f"code={code} msg={msg}"
+
+    if "result" not in status:
+        return None, f"sem result: {status}"
+
+    result = status.get("result")
+    if not result:
+        return None, "result vazio"
+
+    return result, None
 
 
 def parse_tuya_data(device_id: str, status_result: List[Dict]) -> Dict[str, Any]:
@@ -90,12 +147,62 @@ def parse_tuya_data(device_id: str, status_result: List[Dict]) -> Dict[str, Any]
         voltage = metrics['voltage']
         current = metrics['current']
         power = metrics['power']
-        
+
         if voltage > 0 and current > 0:
             apparent_power = voltage * current
             if apparent_power > 0:
                 metrics['power_factor'] = min(power / apparent_power, 1.0)
-    
+
+    # Medidor/disjuntor trifásico (categoria Tuya "tdq"): voltage_a/b/c, current_a/b/c,
+    # active_power_a/b/c, power_factor_a/b/c, forward_energy_total, etc.
+    # Reaproveita os mesmos nomes de métrica usados pelo driver SDM630 (voltage_l1,
+    # power_total, energy_kwh...) para que a Análise Temporal funcione sem alterações.
+    phase_map = {'a': 'l1', 'b': 'l2', 'c': 'l3'}
+    voltages, currents, power_factors = [], [], []
+
+    for src, dst in phase_map.items():
+        if f'voltage_{src}' in data_dict:
+            v = float(data_dict[f'voltage_{src}']) / 10.0
+            metrics[f'voltage_{dst}'] = v
+            voltages.append(v)
+
+        if f'current_{src}' in data_dict:
+            c = float(data_dict[f'current_{src}']) / 1000.0
+            metrics[f'current_{dst}'] = c
+            currents.append(c)
+
+        if f'active_power_{src}' in data_dict:
+            metrics[f'power_{dst}'] = float(data_dict[f'active_power_{src}'])
+
+        if f'power_factor_{src}' in data_dict:
+            pf = float(data_dict[f'power_factor_{src}']) / 100.0
+            metrics[f'power_factor_{dst}'] = pf
+            power_factors.append(pf)
+
+    if voltages:
+        metrics['voltage_avg'] = sum(voltages) / len(voltages)
+
+    if 'current_total' in data_dict:
+        metrics['current_total'] = float(data_dict['current_total']) / 1000.0
+    elif currents:
+        metrics['current_total'] = sum(currents)
+
+    if 'active_power_total' in data_dict:
+        metrics['power_total'] = float(data_dict['active_power_total'])
+    elif 'power_l1' in metrics or 'power_l2' in metrics or 'power_l3' in metrics:
+        metrics['power_total'] = sum(metrics.get(f'power_{p}', 0.0) for p in ('l1', 'l2', 'l3'))
+
+    if power_factors and 'power_factor' not in metrics:
+        metrics['power_factor'] = sum(power_factors) / len(power_factors)
+
+    if 'forward_energy_total' in data_dict:
+        energy_kwh = float(data_dict['forward_energy_total']) / 100.0
+        metrics['energy_kwh'] = energy_kwh
+        metrics.setdefault('energy_wh', energy_kwh * 1000)
+
+    if 'frequency' in data_dict:
+        metrics['frequency'] = float(data_dict['frequency'])
+
     return metrics
 
 
@@ -144,17 +251,9 @@ def poll_tuya_devices():
                     print(f"   [WARN] {device.name}: Sem device_id configurado")
                     continue
                 
-                # Ler status do dispositivo
-                status = cloud.getstatus(tuya_device_id)
-                
-                if not status or 'result' not in status:
-                    print(f"   [WARN] {device.name}: Sem resposta")
-                    continue
-                
-                result = status['result']
-                
-                if not result:
-                    print(f"   [INFO] {device.name}: Sem dados")
+                result, err = fetch_tuya_status(cloud, tuya_device_id)
+                if err:
+                    print(f"   [WARN] {device.name}: API Tuya -> {err}")
                     continue
                 
                 # Converter dados
@@ -181,7 +280,10 @@ def poll_tuya_devices():
                     
                     db.add(measurement)
                     measurements_count += 1
-                
+
+                if firebase_sync.push_reading(device.id, device.name, "tuya", metrics, timestamp):
+                    print(f"   [OK] {device.name}: leitura sincronizada com Firebase")
+
                 print(f"   [OK] {device.name}: {len(metrics)} metrica(s) coletadas")
                 
                 # Log das métricas

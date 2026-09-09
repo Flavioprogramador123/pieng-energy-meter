@@ -161,3 +161,4 @@ print("   1. Criar poller Tuya no backend")
 print("   2. Ver dados no dashboard: http://localhost:8000/api/dashboard")
 print()
 
+

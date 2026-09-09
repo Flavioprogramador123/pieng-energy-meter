@@ -87,3 +87,6 @@ secrets/
 *.backup
 *.bak
 data/backups/
+
+# Postgres local (docker-compose) - dados do banco, nunca versionar
+data/postgres_data/

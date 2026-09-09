@@ -108,3 +108,4 @@ except Exception as e:
     print(f"❌ ERRO: {e}")
     exit(1)
 
+

@@ -313,3 +313,4 @@ pieng_postgres/
 **Status**: ✅ Documentação completa  
 **Próximo passo**: Executar `setup_fidelco.sh`
 
+

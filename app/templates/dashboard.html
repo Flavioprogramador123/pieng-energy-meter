@@ -1,23 +1,14 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Energy Meter - Dashboard</title>
-  <link rel="icon" type="image/png" href="/static/favicon.png" />
-  <link rel="stylesheet" href="/static/css/styles.css" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script defer src="/static/js/dashboard.js?v=3"></script>
-</head>
-<body>
-  <header style="display:flex;justify-content:space-between;align-items:center">
-    <h1>Energy Meter - Dashboard</h1>
-    <nav style="display:flex;gap:10px;">
-      <a href="/api/setup" style="color:#fff;text-decoration:none;padding:8px 16px;background:#667eea;border-radius:6px;font-weight:600">➕ Cadastrar Dispositivo</a>
-      <a href="/api/analytics" style="color:#fff;text-decoration:none;padding:8px 16px;background:#087074;border-radius:6px;font-weight:600">📊 Análise Temporal</a>
-    </nav>
-  </header>
+{% extends "base.html" %}
 
+{% block title %}Energy Meter — Dashboard{% endblock %}
+{% block body_class %}page-dashboard{% endblock %}
+
+{% block extra_head %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script defer src="/static/js/dashboard.js?v=8"></script>
+{% endblock %}
+
+{% block content %}
   <section class="filters">
     <label>Dispositivo:
       <select id="deviceSelect">
@@ -27,16 +18,25 @@
       </select>
     </label>
     <span id="deviceStatus" class="status-indicator"></span>
+
+    <div class="period-ruler" role="group" aria-label="Período">
+      <button type="button" class="period-btn active" data-period="1d">Dia</button>
+      <button type="button" class="period-btn" data-period="1w">Semana</button>
+      <button type="button" class="period-btn" data-period="1m">Mês</button>
+    </div>
+
     <button id="refreshBtn">Atualizar</button>
-    <button id="configBtn" class="btn-config" title="Configurações">⚙️</button>
-    <span style="margin-left:auto;font-size:13px;color:#666">Atualização automática a cada 30s</span>
+    <button id="configBtn" class="btn-config" title="Configurações">&#9881;</button>
+    <span style="margin-left:auto;color:var(--text-faint)">Atualização automática a cada 30s</span>
   </section>
+
+  <div id="dataIntegrityBanner" style="display:none"></div>
 
   <!-- Modal de configuração -->
   <div id="configModal" class="modal">
     <div class="modal-content">
       <span class="close">&times;</span>
-      <h2>⚙️ Configuração do Dispositivo</h2>
+      <h2>Configuração do Dispositivo</h2>
       <form id="configForm">
         <label>Nome:</label>
         <input type="text" id="configName" placeholder="Nome do dispositivo" />
@@ -66,11 +66,11 @@
           Dispositivo ativo
         </label>
 
-        <div style="display:flex;gap:12px;margin-top:20px">
-          <button type="button" id="testBtn" class="btn-test">🔧 Testar Conexão</button>
-          <button type="submit" class="btn-save">💾 Salvar</button>
+        <div class="btn-group">
+          <button type="button" id="testBtn" class="btn-test">Testar Conexão</button>
+          <button type="submit" class="btn-save">Salvar</button>
         </div>
-        <div id="testResult" style="margin-top:12px;padding:8px;display:none"></div>
+        <div id="testResult" style="margin-top:12px;display:none"></div>
       </form>
     </div>
   </div>
@@ -79,7 +79,7 @@
   <div id="alarmModal" class="modal">
     <div class="modal-content">
       <span class="close" onclick="closeAlarmModal()">&times;</span>
-      <h2>⚠️ Nova Regra de Alarme</h2>
+      <h2>Nova Regra de Alarme</h2>
       <form id="alarmForm">
         <label>Nome da Regra:</label>
         <input type="text" id="alarmName" placeholder="Ex: Tensão baixa L1" required />
@@ -113,10 +113,10 @@
 
         <label>Condição:</label>
         <select id="alarmOperator" required>
-          <option value=">">Maior que (>)</option>
-          <option value="<">Menor que (<)</option>
-          <option value=">=">Maior ou igual (>=)</option>
-          <option value="<=">Menor ou igual (<=)</option>
+          <option value=">">Maior que (&gt;)</option>
+          <option value="<">Menor que (&lt;)</option>
+          <option value=">=">Maior ou igual (&gt;=)</option>
+          <option value="<=">Menor ou igual (&lt;=)</option>
           <option value="==">Igual a (==)</option>
           <option value="!=">Diferente de (!=)</option>
         </select>
@@ -129,9 +129,9 @@
           Regra habilitada
         </label>
 
-        <div style="display:flex;gap:12px;margin-top:20px">
-          <button type="submit" class="btn-save">💾 Criar Alarme</button>
-          <button type="button" onclick="closeAlarmModal()" style="background:#6c757d">Cancelar</button>
+        <div class="btn-group">
+          <button type="submit" class="btn-save">Criar Alarme</button>
+          <button type="button" class="btn-secondary" onclick="closeAlarmModal()">Cancelar</button>
         </div>
       </form>
     </div>
@@ -139,76 +139,79 @@
 
   <section class="grid">
     <!-- Cards de valores em tempo real -->
-    <div class="card card-live">
-      <h3>⚡ Tensão</h3>
+    <div class="card card-live card-switch">
+      <h3>Switch / Relé</h3>
+      <div class="live-value" id="liveSwitch">--</div>
+    </div>
+
+    <div class="card card-live card-voltage">
+      <h3>Tensão</h3>
       <div class="live-value" id="liveVoltage">-- V</div>
     </div>
 
-    <div class="card card-live">
-      <h3>🔌 Corrente</h3>
+    <div class="card card-live card-current">
+      <h3>Corrente</h3>
       <div class="live-value" id="liveCurrent">-- A</div>
     </div>
 
-    <div class="card card-live">
-      <h3>💡 Potência</h3>
+    <div class="card card-live card-power">
+      <h3>Potência</h3>
       <div class="live-value" id="livePower">-- W</div>
     </div>
 
-    <div class="card card-live">
-      <h3>📊 Energia Total</h3>
+    <div class="card card-live card-energy">
+      <h3>Energia Total</h3>
       <div class="live-value" id="liveEnergy">-- kWh</div>
     </div>
 
-    <div class="card card-live">
-      <h3>📈 Fator de Potência</h3>
+    <div class="card card-live card-pf">
+      <h3>Fator de Potência</h3>
       <div class="live-value" id="livePF">--</div>
     </div>
 
-    <div class="card card-live">
-      <h3>💰 Custo Estimado</h3>
+    <div class="card card-live card-cost">
+      <h3>Custo Estimado</h3>
       <div class="live-value" id="liveCost">R$ --</div>
     </div>
 
     <!-- Gráficos de séries temporais -->
-    <div class="card card-chart">
-      <h3>Tensão (V) - Série Temporal</h3>
+    <div class="card card-chart card-chart-voltage">
+      <h3>Tensão (V) — Série Temporal</h3>
       <canvas id="chartVoltage"></canvas>
     </div>
 
-    <div class="card card-chart">
-      <h3>Corrente (A) - Série Temporal</h3>
+    <div class="card card-chart card-chart-current">
+      <h3>Corrente (A) — Série Temporal</h3>
       <canvas id="chartCurrent"></canvas>
     </div>
 
-    <div class="card card-chart">
-      <h3>Potência (W) - Série Temporal</h3>
+    <div class="card card-chart card-chart-power">
+      <h3>Potência (W) — Série Temporal</h3>
       <canvas id="chartPower"></canvas>
     </div>
 
-    <div class="card card-chart">
-      <h3>Energia (Wh) - Série Temporal</h3>
+    <div class="card card-chart card-chart-energy">
+      <h3>Energia (Wh) — Série Temporal</h3>
       <canvas id="chartEnergy"></canvas>
     </div>
 
     <!-- Gráfico multi-métrica e alarmes -->
-    <div class="card card-chart" style="grid-column: span 2">
-      <h3>Monitoramento Completo - Multi-Métrica</h3>
+    <div class="card card-chart card-chart-multi" style="grid-column: span 2">
+      <h3>Monitoramento Completo — Multi-Métrica</h3>
       <canvas id="chartMulti"></canvas>
     </div>
 
-    <div class="card">
-      <h3>⚠️ Eventos de Alarme <button id="addAlarmBtn" style="float:right;font-size:12px;padding:4px 8px;cursor:pointer" title="Adicionar regra de alarme">+ Regra</button></h3>
+    <div class="card card-alarms">
+      <h3>Eventos de Alarme <button id="addAlarmBtn" style="float:right;font-size:11px;padding:4px 8px" title="Adicionar regra de alarme">+ Regra</button></h3>
       <div id="alarmsContainer">
-        <div id="alarmRulesList" style="font-size:12px;margin-bottom:12px;padding:8px;background:#f8f9fa;border-radius:4px"></div>
+        <div id="alarmRulesList" style="font-size:12px;margin-bottom:12px"></div>
         <ul id="alarmsList" style="font-size:13px;max-height:180px;overflow-y:auto;list-style:none;padding:0;margin:0"></ul>
       </div>
     </div>
 
-    <div class="card">
-      <h3>Médias das Últimas 100 Leituras</h3>
+    <div class="card card-averages">
+      <h3>Médias do Período Selecionado</h3>
       <div id="averagesBox" style="font-size:14px;line-height:2"></div>
     </div>
   </section>
-</body>
-</html>
-
+{% endblock %}

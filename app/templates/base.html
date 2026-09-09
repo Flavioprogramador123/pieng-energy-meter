@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{% block title %}Energy Meter{% endblock %}</title>
+  <link rel="icon" type="image/png" href="/static/favicon.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/styles.css" />
+  <script>
+    // Aplica o tema salvo antes do primeiro paint, para não piscar o tema errado.
+    (function () {
+      try {
+        var saved = localStorage.getItem('em-theme');
+        if (saved === 'light' || saved === 'dark') {
+          document.documentElement.dataset.theme = saved;
+        }
+      } catch (e) { /* localStorage indisponível */ }
+    })();
+  </script>
+  {% block extra_head %}{% endblock %}
+</head>
+<body class="{% block body_class %}{% endblock %}">
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">&#9889;</span>
+      <span class="brand-name">ENERGY METER</span>
+    </div>
+    <div class="topbar-right">
+      <nav class="topnav">
+        <a href="/api/dashboard" class="{{ 'active' if active_page == 'dashboard' else '' }}">Dashboard</a>
+        <a href="/api/analytics" class="{{ 'active' if active_page == 'analytics' else '' }}">Análise Temporal</a>
+        <a href="/api/setup" class="{{ 'active' if active_page == 'setup' else '' }}">Dispositivos</a>
+      </nav>
+      <div class="theme-toggle" role="group" aria-label="Tema">
+        <button type="button" class="theme-btn" data-theme="light">Claro</button>
+        <button type="button" class="theme-btn" data-theme="dark">Escuro</button>
+      </div>
+    </div>
+  </header>
+
+  {% block content %}{% endblock %}
+
+  <script src="/static/js/theme.js"></script>
+  {% block extra_scripts %}{% endblock %}
+</body>
+</html>

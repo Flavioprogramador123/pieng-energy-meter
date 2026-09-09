@@ -294,3 +294,4 @@ id | device_id | timestamp | metric | value | extra (JSON)
 
 **TODOS OS ENGINES ESTÃO PRONTOS E FUNCIONANDO! ✅**
 
+

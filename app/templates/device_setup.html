@@ -1,712 +1,328 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Cadastro de Dispositivos - PIENG Energy Meter</title>
-    <link rel="stylesheet" href="/static/css/styles.css">
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+{% extends "base.html" %}
 
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            min-height: 100vh;
-            padding: 20px;
-        }
+{% block title %}Energy Meter — Dispositivos{% endblock %}
 
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
+{% block content %}
+  <div id="alert" class="alert"></div>
 
-        .header {
-            background: white;
-            border-radius: 15px;
-            padding: 30px;
-            margin-bottom: 30px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }
+  <div id="engines-selection">
+    <div class="setup-grid">
+      <div class="engine-card" onclick="selectEngine('tuya')">
+        <div class="engine-title">Tuya Cloud API</div>
+        <div class="engine-protocol">CLOUD API / WIFI</div>
+        <div class="engine-description">Medidores WiFi Tuya, smart plugs e disjuntores trifásicos com medição de energia</div>
+      </div>
 
-        .header h1 {
-            color: #667eea;
-            margin-bottom: 10px;
-            font-size: 2.5em;
-        }
+      <div class="engine-card" onclick="selectEngine('pzem_serial')">
+        <div class="engine-title">PZEM-004T Serial</div>
+        <div class="engine-protocol">MODBUS RTU / RS485</div>
+        <div class="engine-description">PZEM-004T conectado via porta serial (RS485 direto)</div>
+      </div>
 
-        .header p {
-            color: #666;
-            font-size: 1.1em;
-        }
+      <div class="engine-card" onclick="selectEngine('pzem_tcp')">
+        <div class="engine-title">PZEM-004T WiFi/4G</div>
+        <div class="engine-protocol">MODBUS TCP / ETHERNET</div>
+        <div class="engine-description">PZEM-004T via Elfin-EW11A, USR-G771 ou conversor WiFi</div>
+      </div>
 
-        .engines-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-            margin-bottom: 30px;
-        }
+      <div class="engine-card" onclick="selectEngine('sdm630_serial')">
+        <div class="engine-title">SDM630 Serial</div>
+        <div class="engine-protocol">MODBUS RTU / RS485</div>
+        <div class="engine-description">Eastron SDM630 trifásico via porta serial RS485</div>
+      </div>
 
-        .engine-card {
-            background: white;
-            border-radius: 15px;
-            padding: 25px;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
-            transition: transform 0.3s, box-shadow 0.3s;
-            cursor: pointer;
-            border: 3px solid transparent;
-        }
+      <div class="engine-card" onclick="selectEngine('sdm630_tcp')">
+        <div class="engine-title">SDM630 WiFi/4G</div>
+        <div class="engine-protocol">MODBUS TCP / ETHERNET</div>
+        <div class="engine-description">Eastron SDM630 via Elfin-EW11A ou conversor WiFi</div>
+      </div>
 
-        .engine-card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }
-
-        .engine-card.active {
-            border-color: #667eea;
-            background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
-        }
-
-        .engine-icon {
-            font-size: 3em;
-            margin-bottom: 15px;
-        }
-
-        .engine-title {
-            font-size: 1.4em;
-            color: #333;
-            margin-bottom: 10px;
-            font-weight: bold;
-        }
-
-        .engine-protocol {
-            color: #667eea;
-            font-size: 0.9em;
-            margin-bottom: 15px;
-            font-weight: 600;
-        }
-
-        .engine-description {
-            color: #666;
-            font-size: 0.95em;
-            line-height: 1.5;
-        }
-
-        .form-container {
-            background: white;
-            border-radius: 15px;
-            padding: 30px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-            display: none;
-        }
-
-        .form-container.active {
-            display: block;
-            animation: slideIn 0.3s ease-out;
-        }
-
-        @keyframes slideIn {
-            from {
-                opacity: 0;
-                transform: translateY(20px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        .form-header {
-            border-bottom: 3px solid #667eea;
-            padding-bottom: 15px;
-            margin-bottom: 25px;
-        }
-
-        .form-header h2 {
-            color: #667eea;
-            font-size: 1.8em;
-        }
-
-        .form-group {
-            margin-bottom: 20px;
-        }
-
-        .form-group label {
-            display: block;
-            color: #333;
-            font-weight: 600;
-            margin-bottom: 8px;
-            font-size: 1em;
-        }
-
-        .form-group input,
-        .form-group select {
-            width: 100%;
-            padding: 12px 15px;
-            border: 2px solid #ddd;
-            border-radius: 8px;
-            font-size: 1em;
-            transition: border-color 0.3s;
-        }
-
-        .form-group input:focus,
-        .form-group select:focus {
-            outline: none;
-            border-color: #667eea;
-        }
-
-        .form-group small {
-            display: block;
-            color: #999;
-            margin-top: 5px;
-            font-size: 0.9em;
-        }
-
-        .form-row {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 15px;
-        }
-
-        .btn-group {
-            display: flex;
-            gap: 15px;
-            margin-top: 30px;
-        }
-
-        .btn {
-            padding: 15px 30px;
-            border: none;
-            border-radius: 8px;
-            font-size: 1.1em;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-            flex: 1;
-        }
-
-        .btn-primary {
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-        }
-
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
-        }
-
-        .btn-secondary {
-            background: #f0f0f0;
-            color: #333;
-        }
-
-        .btn-secondary:hover {
-            background: #e0e0e0;
-        }
-
-        .alert {
-            padding: 15px 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            display: none;
-        }
-
-        .alert.show {
-            display: block;
-            animation: slideIn 0.3s ease-out;
-        }
-
-        .alert-success {
-            background: #d4edda;
-            color: #155724;
-            border: 2px solid #c3e6cb;
-        }
-
-        .alert-error {
-            background: #f8d7da;
-            color: #721c24;
-            border: 2px solid #f5c6cb;
-        }
-
-        .devices-list {
-            background: white;
-            border-radius: 15px;
-            padding: 30px;
-            margin-top: 30px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
-        }
-
-        .devices-list h2 {
-            color: #667eea;
-            margin-bottom: 20px;
-            font-size: 1.8em;
-        }
-
-        .device-item {
-            background: #f8f9fa;
-            padding: 15px 20px;
-            border-radius: 8px;
-            margin-bottom: 10px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            transition: background 0.3s;
-        }
-
-        .device-item:hover {
-            background: #e9ecef;
-        }
-
-        .device-info {
-            flex: 1;
-        }
-
-        .device-name {
-            font-weight: 600;
-            color: #333;
-            font-size: 1.1em;
-            margin-bottom: 5px;
-        }
-
-        .device-type {
-            color: #667eea;
-            font-size: 0.9em;
-        }
-
-        .device-status {
-            padding: 5px 15px;
-            border-radius: 20px;
-            font-size: 0.9em;
-            font-weight: 600;
-        }
-
-        .status-active {
-            background: #d4edda;
-            color: #155724;
-        }
-
-        .status-inactive {
-            background: #f8d7da;
-            color: #721c24;
-        }
-
-        .back-btn {
-            background: transparent;
-            color: #667eea;
-            padding: 10px 20px;
-            border: 2px solid #667eea;
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 1em;
-            font-weight: 600;
-            margin-bottom: 20px;
-            transition: all 0.3s;
-        }
-
-        .back-btn:hover {
-            background: #667eea;
-            color: white;
-        }
-
-        @media (max-width: 768px) {
-            .engines-grid {
-                grid-template-columns: 1fr;
-            }
-
-            .form-row {
-                grid-template-columns: 1fr;
-            }
-
-            .btn-group {
-                flex-direction: column;
-            }
-        }
-    </style>
-</head>
-<body>
-    <div class="container">
-        <!-- Header -->
-        <div class="header">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-                <h1 style="margin: 0;">🚀 Cadastro de Dispositivos</h1>
-                <nav style="display: flex; gap: 10px;">
-                    <a href="/api/dashboard" style="color: #667eea; text-decoration: none; padding: 10px 20px; border: 2px solid #667eea; border-radius: 8px; font-weight: 600; transition: all 0.3s;">
-                        🏠 Dashboard
-                    </a>
-                    <a href="/api/analytics" style="color: #667eea; text-decoration: none; padding: 10px 20px; border: 2px solid #087074; border-radius: 8px; font-weight: 600; transition: all 0.3s;">
-                        📊 Analytics
-                    </a>
-                </nav>
-            </div>
-            <p style="margin: 0;">Sistema Universal - Qualquer marca, modelo ou protocolo</p>
-        </div>
-
-        <!-- Alert Messages -->
-        <div id="alert" class="alert"></div>
-
-        <!-- Engines Selection Grid -->
-        <div id="engines-selection">
-            <div class="engines-grid">
-                <!-- Tuya Cloud -->
-                <div class="engine-card" onclick="selectEngine('tuya')">
-                    <div class="engine-icon">📡</div>
-                    <div class="engine-title">Tuya Cloud API</div>
-                    <div class="engine-protocol">Cloud API / WiFi</div>
-                    <div class="engine-description">
-                        Medidores WiFi Tuya, Smart Plugs com medição de energia
-                    </div>
-                </div>
-
-                <!-- PZEM-004T Serial -->
-                <div class="engine-card" onclick="selectEngine('pzem_serial')">
-                    <div class="engine-icon">🔌</div>
-                    <div class="engine-title">PZEM-004T Serial</div>
-                    <div class="engine-protocol">Modbus RTU / RS485</div>
-                    <div class="engine-description">
-                        PZEM-004T conectado via porta serial (RS485 direto)
-                    </div>
-                </div>
-
-                <!-- PZEM-004T TCP -->
-                <div class="engine-card" onclick="selectEngine('pzem_tcp')">
-                    <div class="engine-icon">🌐</div>
-                    <div class="engine-title">PZEM-004T WiFi/4G</div>
-                    <div class="engine-protocol">Modbus TCP / Ethernet</div>
-                    <div class="engine-description">
-                        PZEM-004T via Elfin-EW11A, USR-G771 ou conversor WiFi
-                    </div>
-                </div>
-
-                <!-- SDM630 Serial -->
-                <div class="engine-card" onclick="selectEngine('sdm630_serial')">
-                    <div class="engine-icon">⚡</div>
-                    <div class="engine-title">SDM630 Serial</div>
-                    <div class="engine-protocol">Modbus RTU / RS485</div>
-                    <div class="engine-description">
-                        Eastron SDM630 trifásico via porta serial RS485
-                    </div>
-                </div>
-
-                <!-- SDM630 TCP -->
-                <div class="engine-card" onclick="selectEngine('sdm630_tcp')">
-                    <div class="engine-icon">🔋</div>
-                    <div class="engine-title">SDM630 WiFi/4G</div>
-                    <div class="engine-protocol">Modbus TCP / Ethernet</div>
-                    <div class="engine-description">
-                        Eastron SDM630 via Elfin-EW11A ou conversor WiFi
-                    </div>
-                </div>
-
-                <!-- Generic Modbus -->
-                <div class="engine-card" onclick="selectEngine('generic')">
-                    <div class="engine-icon">⚙️</div>
-                    <div class="engine-title">Modbus Genérico</div>
-                    <div class="engine-protocol">Modbus RTU/TCP</div>
-                    <div class="engine-description">
-                        Qualquer dispositivo Modbus (Schneider, ABB, WEG, Siemens...)
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Forms (Hidden by default) -->
-        <div id="form-tuya" class="form-container">
-            <button class="back-btn" onclick="backToSelection()">← Voltar</button>
-            <div class="form-header">
-                <h2>📡 Tuya Cloud API</h2>
-            </div>
-            <form onsubmit="submitForm(event, 'tuya')">
-                <div class="form-group">
-                    <label>Nome do Cliente</label>
-                    <input type="text" id="tuya_client_name" placeholder="Ex: Fidelco Montagem" required>
-                </div>
-                <div class="form-group">
-                    <label>Nome do Dispositivo</label>
-                    <input type="text" id="tuya_device_name" placeholder="Ex: Medidor Tuya - Escritório" required>
-                    <small>Nome descritivo para identificar o dispositivo</small>
-                </div>
-                <div class="form-group">
-                    <label>Device ID Tuya</label>
-                    <input type="text" id="tuya_device_id" placeholder="Ex: ebbef04296002afe3ecxcg" required>
-                    <small>Execute: python test_tuya_real.py para ver os IDs</small>
-                </div>
-                <div class="btn-group">
-                    <button type="button" class="btn btn-secondary" onclick="backToSelection()">Cancelar</button>
-                    <button type="submit" class="btn btn-primary">💾 Cadastrar Dispositivo</button>
-                </div>
-            </form>
-        </div>
-
-        <div id="form-pzem_serial" class="form-container">
-            <button class="back-btn" onclick="backToSelection()">← Voltar</button>
-            <div class="form-header">
-                <h2>🔌 PZEM-004T Serial (RS485)</h2>
-            </div>
-            <form onsubmit="submitForm(event, 'pzem_serial')">
-                <div class="form-group">
-                    <label>Nome do Cliente</label>
-                    <input type="text" id="pzem_serial_client_name" placeholder="Ex: Fidelco Montagem" required>
-                </div>
-                <div class="form-group">
-                    <label>Nome do Dispositivo</label>
-                    <input type="text" id="pzem_serial_device_name" placeholder="Ex: PZEM - Sala de Montagem" required>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Porta COM</label>
-                        <input type="text" id="pzem_serial_port" value="COM3" required>
-                        <small>Ex: COM3, /dev/ttyUSB0</small>
-                    </div>
-                    <div class="form-group">
-                        <label>Slave ID</label>
-                        <input type="number" id="pzem_serial_slave_id" value="1" min="1" max="247" required>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Baudrate</label>
-                        <select id="pzem_serial_baudrate" required>
-                            <option value="9600" selected>9600</option>
-                            <option value="4800">4800</option>
-                            <option value="19200">19200</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Timeout (segundos)</label>
-                        <input type="number" id="pzem_serial_timeout" value="0.5" step="0.1" min="0.1" max="5" required>
-                    </div>
-                </div>
-                <div class="btn-group">
-                    <button type="button" class="btn btn-secondary" onclick="backToSelection()">Cancelar</button>
-                    <button type="submit" class="btn btn-primary">💾 Cadastrar Dispositivo</button>
-                </div>
-            </form>
-        </div>
-
-        <div id="form-pzem_tcp" class="form-container">
-            <button class="back-btn" onclick="backToSelection()">← Voltar</button>
-            <div class="form-header">
-                <h2>🌐 PZEM-004T TCP (WiFi/4G)</h2>
-            </div>
-            <form onsubmit="submitForm(event, 'pzem_tcp')">
-                <div class="form-group">
-                    <label>Nome do Cliente</label>
-                    <input type="text" id="pzem_tcp_client_name" placeholder="Ex: Fidelco Montagem" required>
-                </div>
-                <div class="form-group">
-                    <label>Nome do Dispositivo</label>
-                    <input type="text" id="pzem_tcp_device_name" placeholder="Ex: PZEM - Linha 1" required>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>IP do Conversor</label>
-                        <input type="text" id="pzem_tcp_host" placeholder="192.168.1.100" required>
-                        <small>IP do Elfin-EW11A ou USR-G771</small>
-                    </div>
-                    <div class="form-group">
-                        <label>Porta Modbus</label>
-                        <input type="number" id="pzem_tcp_port" value="502" min="1" max="65535" required>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Slave ID</label>
-                        <input type="number" id="pzem_tcp_slave_id" value="1" min="1" max="247" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Timeout (segundos)</label>
-                        <input type="number" id="pzem_tcp_timeout" value="3.0" step="0.1" min="0.5" max="10" required>
-                    </div>
-                </div>
-                <div class="btn-group">
-                    <button type="button" class="btn btn-secondary" onclick="backToSelection()">Cancelar</button>
-                    <button type="submit" class="btn btn-primary">💾 Cadastrar Dispositivo</button>
-                </div>
-            </form>
-        </div>
-
-        <div id="form-sdm630_serial" class="form-container">
-            <button class="back-btn" onclick="backToSelection()">← Voltar</button>
-            <div class="form-header">
-                <h2>⚡ Eastron SDM630 Serial</h2>
-            </div>
-            <form onsubmit="submitForm(event, 'sdm630_serial')">
-                <div class="form-group">
-                    <label>Nome do Cliente</label>
-                    <input type="text" id="sdm630_serial_client_name" placeholder="Ex: Fidelco Montagem" required>
-                </div>
-                <div class="form-group">
-                    <label>Nome do Dispositivo</label>
-                    <input type="text" id="sdm630_serial_device_name" placeholder="Ex: SDM630 - Entrada Principal" required>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Porta COM</label>
-                        <input type="text" id="sdm630_serial_port" value="COM4" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Slave ID</label>
-                        <input type="number" id="sdm630_serial_slave_id" value="2" min="1" max="247" required>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Baudrate</label>
-                        <select id="sdm630_serial_baudrate" required>
-                            <option value="9600" selected>9600</option>
-                            <option value="4800">4800</option>
-                            <option value="19200">19200</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Timeout (segundos)</label>
-                        <input type="number" id="sdm630_serial_timeout" value="1.0" step="0.1" min="0.1" max="5" required>
-                    </div>
-                </div>
-                <div class="btn-group">
-                    <button type="button" class="btn btn-secondary" onclick="backToSelection()">Cancelar</button>
-                    <button type="submit" class="btn btn-primary">💾 Cadastrar Dispositivo</button>
-                </div>
-            </form>
-        </div>
-
-        <div id="form-sdm630_tcp" class="form-container">
-            <button class="back-btn" onclick="backToSelection()">← Voltar</button>
-            <div class="form-header">
-                <h2>🔋 Eastron SDM630 TCP</h2>
-            </div>
-            <form onsubmit="submitForm(event, 'sdm630_tcp')">
-                <div class="form-group">
-                    <label>Nome do Cliente</label>
-                    <input type="text" id="sdm630_tcp_client_name" placeholder="Ex: Fidelco Montagem" required>
-                </div>
-                <div class="form-group">
-                    <label>Nome do Dispositivo</label>
-                    <input type="text" id="sdm630_tcp_device_name" placeholder="Ex: SDM630 - Entrada Principal" required>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>IP do Conversor</label>
-                        <input type="text" id="sdm630_tcp_host" placeholder="192.168.1.101" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Porta Modbus</label>
-                        <input type="number" id="sdm630_tcp_port" value="502" min="1" max="65535" required>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Slave ID</label>
-                        <input type="number" id="sdm630_tcp_slave_id" value="2" min="1" max="247" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Timeout (segundos)</label>
-                        <input type="number" id="sdm630_tcp_timeout" value="3.0" step="0.1" min="0.5" max="10" required>
-                    </div>
-                </div>
-                <div class="btn-group">
-                    <button type="button" class="btn btn-secondary" onclick="backToSelection()">Cancelar</button>
-                    <button type="submit" class="btn btn-primary">💾 Cadastrar Dispositivo</button>
-                </div>
-            </form>
-        </div>
-
-        <div id="form-generic" class="form-container">
-            <button class="back-btn" onclick="backToSelection()">← Voltar</button>
-            <div class="form-header">
-                <h2>⚙️ Modbus Genérico</h2>
-            </div>
-            <form onsubmit="submitForm(event, 'generic')">
-                <div class="form-group">
-                    <label>Nome do Cliente</label>
-                    <input type="text" id="generic_client_name" placeholder="Ex: Fidelco Montagem" required>
-                </div>
-                <div class="form-group">
-                    <label>Nome do Dispositivo</label>
-                    <input type="text" id="generic_device_name" placeholder="Ex: Medidor Genérico - Linha 1" required>
-                </div>
-                <div class="form-group">
-                    <label>Tipo de Conexão</label>
-                    <select id="generic_connection_type" onchange="toggleGenericFields()" required>
-                        <option value="tcp">Modbus TCP (Ethernet/WiFi)</option>
-                        <option value="serial">Modbus RTU (Serial)</option>
-                    </select>
-                </div>
-                
-                <!-- TCP Fields -->
-                <div id="generic_tcp_fields">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>IP do Dispositivo</label>
-                            <input type="text" id="generic_tcp_host" placeholder="192.168.1.200">
-                        </div>
-                        <div class="form-group">
-                            <label>Porta Modbus</label>
-                            <input type="number" id="generic_tcp_port" value="502" min="1" max="65535">
-                        </div>
-                    </div>
-                </div>
-                
-                <!-- Serial Fields -->
-                <div id="generic_serial_fields" style="display: none;">
-                    <div class="form-row">
-                        <div class="form-group">
-                            <label>Porta COM</label>
-                            <input type="text" id="generic_serial_port" value="COM5">
-                        </div>
-                        <div class="form-group">
-                            <label>Baudrate</label>
-                            <select id="generic_serial_baudrate">
-                                <option value="9600" selected>9600</option>
-                                <option value="4800">4800</option>
-                                <option value="19200">19200</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-                
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Slave ID</label>
-                        <input type="number" id="generic_slave_id" value="1" min="1" max="247" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Timeout (segundos)</label>
-                        <input type="number" id="generic_timeout" value="3.0" step="0.1" min="0.1" max="10" required>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label>Endereço Base</label>
-                        <input type="number" id="generic_base" value="0" min="0" max="65535" required>
-                        <small>Endereço inicial dos registros Modbus</small>
-                    </div>
-                    <div class="form-group">
-                        <label>Quantidade de Registros</label>
-                        <input type="number" id="generic_count" value="10" min="1" max="100" required>
-                        <small>Número de registros a ler</small>
-                    </div>
-                </div>
-                <div class="btn-group">
-                    <button type="button" class="btn btn-secondary" onclick="backToSelection()">Cancelar</button>
-                    <button type="submit" class="btn btn-primary">💾 Cadastrar Dispositivo</button>
-                </div>
-            </form>
-        </div>
-
-        <!-- Devices List -->
-        <div class="devices-list">
-            <h2>📱 Dispositivos Cadastrados</h2>
-            <div id="devices-container">
-                <p style="color: #999; text-align: center; padding: 20px;">Carregando...</p>
-            </div>
-        </div>
+      <div class="engine-card" onclick="selectEngine('generic')">
+        <div class="engine-title">Modbus Genérico</div>
+        <div class="engine-protocol">MODBUS RTU/TCP</div>
+        <div class="engine-description">Qualquer dispositivo Modbus (Schneider, ABB, WEG, Siemens...)</div>
+      </div>
     </div>
+  </div>
 
-    <script src="/static/js/device_setup.js"></script>
-</body>
-</html>
+  <div id="form-tuya" class="form-container">
+    <button class="back-btn" onclick="backToSelection()">&larr; Voltar</button>
+    <div class="form-header"><h2>Tuya Cloud API</h2></div>
+    <form onsubmit="submitForm(event, 'tuya')">
+      <div class="form-group">
+        <label>Nome do Cliente</label>
+        <input type="text" id="tuya_client_name" placeholder="Ex: Fidelco Montagem" required>
+      </div>
+      <div class="form-group">
+        <label>Nome do Dispositivo</label>
+        <input type="text" id="tuya_device_name" placeholder="Ex: Medidor Tuya - Escritório" required>
+        <small>Nome descritivo para identificar o dispositivo</small>
+      </div>
+      <div class="form-group">
+        <label>Device ID Tuya</label>
+        <input type="text" id="tuya_device_id" placeholder="Ex: ebbef04296002afe3ecxcg" required>
+        <small>Obtenha o Device ID no console da Tuya IoT Platform</small>
+      </div>
+      <div class="btn-group">
+        <button type="button" class="btn btn-secondary" onclick="backToSelection()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Cadastrar Dispositivo</button>
+      </div>
+    </form>
+  </div>
 
+  <div id="form-pzem_serial" class="form-container">
+    <button class="back-btn" onclick="backToSelection()">&larr; Voltar</button>
+    <div class="form-header"><h2>PZEM-004T Serial (RS485)</h2></div>
+    <form onsubmit="submitForm(event, 'pzem_serial')">
+      <div class="form-group">
+        <label>Nome do Cliente</label>
+        <input type="text" id="pzem_serial_client_name" placeholder="Ex: Fidelco Montagem" required>
+      </div>
+      <div class="form-group">
+        <label>Nome do Dispositivo</label>
+        <input type="text" id="pzem_serial_device_name" placeholder="Ex: PZEM - Sala de Montagem" required>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Porta COM</label>
+          <input type="text" id="pzem_serial_port" value="COM3" required>
+          <small>Ex: COM3, /dev/ttyUSB0</small>
+        </div>
+        <div class="form-group">
+          <label>Slave ID</label>
+          <input type="number" id="pzem_serial_slave_id" value="1" min="1" max="247" required>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Baudrate</label>
+          <select id="pzem_serial_baudrate" required>
+            <option value="9600" selected>9600</option>
+            <option value="4800">4800</option>
+            <option value="19200">19200</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Timeout (segundos)</label>
+          <input type="number" id="pzem_serial_timeout" value="0.5" step="0.1" min="0.1" max="5" required>
+        </div>
+      </div>
+      <div class="btn-group">
+        <button type="button" class="btn btn-secondary" onclick="backToSelection()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Cadastrar Dispositivo</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="form-pzem_tcp" class="form-container">
+    <button class="back-btn" onclick="backToSelection()">&larr; Voltar</button>
+    <div class="form-header"><h2>PZEM-004T TCP (WiFi/4G)</h2></div>
+    <form onsubmit="submitForm(event, 'pzem_tcp')">
+      <div class="form-group">
+        <label>Nome do Cliente</label>
+        <input type="text" id="pzem_tcp_client_name" placeholder="Ex: Fidelco Montagem" required>
+      </div>
+      <div class="form-group">
+        <label>Nome do Dispositivo</label>
+        <input type="text" id="pzem_tcp_device_name" placeholder="Ex: PZEM - Linha 1" required>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>IP do Conversor</label>
+          <input type="text" id="pzem_tcp_host" placeholder="192.168.1.100" required>
+          <small>IP do Elfin-EW11A ou USR-G771</small>
+        </div>
+        <div class="form-group">
+          <label>Porta Modbus</label>
+          <input type="number" id="pzem_tcp_port" value="502" min="1" max="65535" required>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Slave ID</label>
+          <input type="number" id="pzem_tcp_slave_id" value="1" min="1" max="247" required>
+        </div>
+        <div class="form-group">
+          <label>Timeout (segundos)</label>
+          <input type="number" id="pzem_tcp_timeout" value="3.0" step="0.1" min="0.5" max="10" required>
+        </div>
+      </div>
+      <div class="btn-group">
+        <button type="button" class="btn btn-secondary" onclick="backToSelection()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Cadastrar Dispositivo</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="form-sdm630_serial" class="form-container">
+    <button class="back-btn" onclick="backToSelection()">&larr; Voltar</button>
+    <div class="form-header"><h2>Eastron SDM630 Serial</h2></div>
+    <form onsubmit="submitForm(event, 'sdm630_serial')">
+      <div class="form-group">
+        <label>Nome do Cliente</label>
+        <input type="text" id="sdm630_serial_client_name" placeholder="Ex: Fidelco Montagem" required>
+      </div>
+      <div class="form-group">
+        <label>Nome do Dispositivo</label>
+        <input type="text" id="sdm630_serial_device_name" placeholder="Ex: SDM630 - Entrada Principal" required>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Porta COM</label>
+          <input type="text" id="sdm630_serial_port" value="COM4" required>
+        </div>
+        <div class="form-group">
+          <label>Slave ID</label>
+          <input type="number" id="sdm630_serial_slave_id" value="2" min="1" max="247" required>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Baudrate</label>
+          <select id="sdm630_serial_baudrate" required>
+            <option value="9600" selected>9600</option>
+            <option value="4800">4800</option>
+            <option value="19200">19200</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Timeout (segundos)</label>
+          <input type="number" id="sdm630_serial_timeout" value="1.0" step="0.1" min="0.1" max="5" required>
+        </div>
+      </div>
+      <div class="btn-group">
+        <button type="button" class="btn btn-secondary" onclick="backToSelection()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Cadastrar Dispositivo</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="form-sdm630_tcp" class="form-container">
+    <button class="back-btn" onclick="backToSelection()">&larr; Voltar</button>
+    <div class="form-header"><h2>Eastron SDM630 TCP</h2></div>
+    <form onsubmit="submitForm(event, 'sdm630_tcp')">
+      <div class="form-group">
+        <label>Nome do Cliente</label>
+        <input type="text" id="sdm630_tcp_client_name" placeholder="Ex: Fidelco Montagem" required>
+      </div>
+      <div class="form-group">
+        <label>Nome do Dispositivo</label>
+        <input type="text" id="sdm630_tcp_device_name" placeholder="Ex: SDM630 - Entrada Principal" required>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>IP do Conversor</label>
+          <input type="text" id="sdm630_tcp_host" placeholder="192.168.1.101" required>
+        </div>
+        <div class="form-group">
+          <label>Porta Modbus</label>
+          <input type="number" id="sdm630_tcp_port" value="502" min="1" max="65535" required>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Slave ID</label>
+          <input type="number" id="sdm630_tcp_slave_id" value="2" min="1" max="247" required>
+        </div>
+        <div class="form-group">
+          <label>Timeout (segundos)</label>
+          <input type="number" id="sdm630_tcp_timeout" value="3.0" step="0.1" min="0.5" max="10" required>
+        </div>
+      </div>
+      <div class="btn-group">
+        <button type="button" class="btn btn-secondary" onclick="backToSelection()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Cadastrar Dispositivo</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="form-generic" class="form-container">
+    <button class="back-btn" onclick="backToSelection()">&larr; Voltar</button>
+    <div class="form-header"><h2>Modbus Genérico</h2></div>
+    <form onsubmit="submitForm(event, 'generic')">
+      <div class="form-group">
+        <label>Nome do Cliente</label>
+        <input type="text" id="generic_client_name" placeholder="Ex: Fidelco Montagem" required>
+      </div>
+      <div class="form-group">
+        <label>Nome do Dispositivo</label>
+        <input type="text" id="generic_device_name" placeholder="Ex: Medidor Genérico - Linha 1" required>
+      </div>
+      <div class="form-group">
+        <label>Tipo de Conexão</label>
+        <select id="generic_connection_type" onchange="toggleGenericFields()" required>
+          <option value="tcp">Modbus TCP (Ethernet/WiFi)</option>
+          <option value="serial">Modbus RTU (Serial)</option>
+        </select>
+      </div>
+
+      <div id="generic_tcp_fields">
+        <div class="form-row">
+          <div class="form-group">
+            <label>IP do Dispositivo</label>
+            <input type="text" id="generic_tcp_host" placeholder="192.168.1.200">
+          </div>
+          <div class="form-group">
+            <label>Porta Modbus</label>
+            <input type="number" id="generic_tcp_port" value="502" min="1" max="65535">
+          </div>
+        </div>
+      </div>
+
+      <div id="generic_serial_fields" style="display:none">
+        <div class="form-row">
+          <div class="form-group">
+            <label>Porta COM</label>
+            <input type="text" id="generic_serial_port" value="COM5">
+          </div>
+          <div class="form-group">
+            <label>Baudrate</label>
+            <select id="generic_serial_baudrate">
+              <option value="9600" selected>9600</option>
+              <option value="4800">4800</option>
+              <option value="19200">19200</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Slave ID</label>
+          <input type="number" id="generic_slave_id" value="1" min="1" max="247" required>
+        </div>
+        <div class="form-group">
+          <label>Timeout (segundos)</label>
+          <input type="number" id="generic_timeout" value="3.0" step="0.1" min="0.1" max="10" required>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Endereço Base</label>
+          <input type="number" id="generic_base" value="0" min="0" max="65535" required>
+          <small>Endereço inicial dos registros Modbus</small>
+        </div>
+        <div class="form-group">
+          <label>Quantidade de Registros</label>
+          <input type="number" id="generic_count" value="10" min="1" max="100" required>
+          <small>Número de registros a ler</small>
+        </div>
+      </div>
+      <div class="btn-group">
+        <button type="button" class="btn btn-secondary" onclick="backToSelection()">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Cadastrar Dispositivo</button>
+      </div>
+    </form>
+  </div>
+
+  <div class="devices-list">
+    <h2>Dispositivos Cadastrados</h2>
+    <div id="devices-container">
+      <p style="color:var(--text-faint);text-align:center;padding:20px">Carregando...</p>
+    </div>
+  </div>
+{% endblock %}
+
+{% block extra_scripts %}
+  <script src="/static/js/device_setup.js"></script>
+{% endblock %}

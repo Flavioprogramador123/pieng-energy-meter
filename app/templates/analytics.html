@@ -1,272 +1,469 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Energy Meter - Análise Temporal</title>
-  <link rel="icon" type="image/png" href="/static/favicon.png" />
-  <link rel="stylesheet" href="/static/css/styles.css" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <style>
-    optgroup { font-weight: bold; color: #087074; }
-    option { font-weight: normal; color: #333; }
-  </style>
-</head>
-<body>
-  <header style="display:flex;justify-content:space-between;align-items:center">
-    <h1>Energy Meter - Análise Temporal</h1>
-    <nav style="display:flex;gap:10px;">
-      <a href="/api/dashboard" style="color:#fff;text-decoration:none;padding:8px 16px;background:#087074;border-radius:6px;font-weight:600">🏠 Dashboard</a>
-      <a href="/api/setup" style="color:#fff;text-decoration:none;padding:8px 16px;background:#667eea;border-radius:6px;font-weight:600">➕ Cadastrar Dispositivo</a>
-    </nav>
-  </header>
+{% extends "base.html" %}
 
+{% block title %}Energy Meter — Análise Temporal{% endblock %}
+
+{% block extra_head %}
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+{% endblock %}
+
+{% block content %}
   <section class="filters">
     <label>Dispositivo:
       <select id="deviceSelect">
         {% for d in devices %}
-        <option value="{{ d.id }}">{{ d.name }} ({{ d.device_type }})</option>
+        <option value="{{ d.id }}" data-active="{{ d.active }}">{{ d.name }} ({{ d.device_type }}){% if not d.active %} [inativo]{% endif %}</option>
         {% endfor %}
       </select>
     </label>
 
     <label>Métrica:
       <select id="metricSelect">
-        <optgroup label="Monofásico (PZEM)">
-          <option value="voltage">Tensão</option>
-          <option value="current">Corrente</option>
-          <option value="power" selected>Potência</option>
-          <option value="energy_wh">Energia</option>
-        </optgroup>
-        <optgroup label="Trifásico - Tensões (SDM630)">
-          <option value="voltage_l1">Tensão L1</option>
-          <option value="voltage_l2">Tensão L2</option>
-          <option value="voltage_l3">Tensão L3</option>
-          <option value="voltage_avg">Tensão Média</option>
-        </optgroup>
-        <optgroup label="Trifásico - Correntes (SDM630)">
-          <option value="current_l1">Corrente L1</option>
-          <option value="current_l2">Corrente L2</option>
-          <option value="current_l3">Corrente L3</option>
-          <option value="current_total">Corrente Total</option>
-        </optgroup>
-        <optgroup label="Trifásico - Potências (SDM630)">
-          <option value="power_l1">Potência L1</option>
-          <option value="power_l2">Potência L2</option>
-          <option value="power_l3">Potência L3</option>
-          <option value="power_total">Potência Total</option>
-        </optgroup>
-        <optgroup label="Outros (SDM630)">
-          <option value="frequency">Frequência</option>
-          <option value="power_factor">Fator de Potência</option>
-          <option value="energy_kwh">Energia (kWh)</option>
-        </optgroup>
+        <option value="">Carregando métricas...</option>
       </select>
     </label>
 
-    <label>Período:
-      <select id="periodSelect">
-        <option value="1h">Última hora</option>
-        <option value="6h">Últimas 6 horas</option>
-        <option value="1d" selected>Último dia</option>
-        <option value="1w">Última semana</option>
-        <option value="1m">Último mês</option>
-        <option value="1y">Último ano</option>
-      </select>
-    </label>
+    <div class="period-ruler" role="group" aria-label="Período">
+      <button type="button" class="period-btn active" data-period="1d">Dia</button>
+      <button type="button" class="period-btn" data-period="1w">Semana</button>
+      <button type="button" class="period-btn" data-period="1m">Mês</button>
+    </div>
+    <input type="hidden" id="periodSelect" value="1d" />
 
-    <button id="loadBtn">🔍 Carregar</button>
+    <button id="loadBtn" class="btn-primary">Carregar</button>
   </section>
 
+  <div id="statusMsg" class="status-msg"></div>
+
   <section class="grid" style="grid-template-columns: repeat(3, 1fr)">
-    <!-- Gráfico temporal agregado -->
-    <div class="card card-chart" style="grid-column: span 3; min-height: 400px">
-      <h3>📊 Evolução Temporal - Min/Média/Max</h3>
+    <div class="card card-chart card-chart-multi" style="grid-column: span 3; min-height: 400px">
+      <h3>Evolução Temporal — Mínimo / Média / Máximo</h3>
       <canvas id="chartTemporal"></canvas>
     </div>
 
-    <!-- Análise de demanda -->
-    <div class="card">
-      <h3>⚡ Demanda - Pico vs Fora-Ponta</h3>
+    <div class="card card-alarms">
+      <h3>Demanda — Pico vs Fora-Ponta</h3>
       <div id="demandBox" style="font-size:14px;line-height:2"></div>
     </div>
 
-    <!-- Curva de carga diária -->
-    <div class="card card-chart" style="grid-column: span 2">
-      <h3>📈 Curva de Carga - Média por Hora</h3>
+    <div class="card card-chart card-chart-power" style="grid-column: span 2">
+      <h3>Curva / Distribuição por Hora</h3>
       <canvas id="chartHourly"></canvas>
     </div>
 
-    <!-- Estatísticas do período -->
-    <div class="card">
-      <h3>📋 Estatísticas do Período</h3>
+    <div class="card card-averages">
+      <h3>Estatísticas do Período</h3>
       <div id="statsBox" style="font-size:14px;line-height:2"></div>
     </div>
 
-    <!-- Consumo acumulado -->
-    <div class="card card-chart" style="grid-column: span 2">
-      <h3>🔋 Consumo Acumulado (kWh)</h3>
+    <div class="card card-chart card-chart-energy" style="grid-column: span 2">
+      <h3>Série da Métrica Selecionada</h3>
       <canvas id="chartEnergy"></canvas>
     </div>
-  </section>
 
+    <div class="card card-pf">
+      <h3>Qualidade — Six Sigma</h3>
+      <div id="sixSigmaBox" style="font-size:14px;line-height:2"></div>
+    </div>
+
+    <div class="card card-energy" style="grid-column: span 2">
+      <h3>Comparação com Período Anterior</h3>
+      <div id="periodCompareBox" style="font-size:14px;line-height:2"></div>
+    </div>
+  </section>
+{% endblock %}
+
+{% block extra_scripts %}
   <script>
     function el(id) { return document.getElementById(id); }
 
-    let chartTemporal, chartHourly, chartEnergy;
+    let chartTemporal = null;
+    let chartHourly = null;
+    let chartEnergy = null;
+    let loading = false;
+
+    const METRIC_LABELS = {
+      switch_status: 'Switch / Relé',
+      voltage: 'Tensão (V)',
+      current: 'Corrente (A)',
+      power: 'Potência (W)',
+      energy_wh: 'Energia (Wh)',
+      power_total: 'Potência Total (W)',
+      voltage_l1: 'Tensão L1',
+      voltage_l2: 'Tensão L2',
+      voltage_l3: 'Tensão L3',
+      current_l1: 'Corrente L1',
+      current_l2: 'Corrente L2',
+      current_l3: 'Corrente L3',
+      power_l1: 'Potência L1',
+      power_l2: 'Potência L2',
+      power_l3: 'Potência L3',
+      frequency: 'Frequência',
+      power_factor: 'Fator de Potência'
+    };
+
+    function setStatus(type, html) {
+      const box = el('statusMsg');
+      box.className = 'status-msg show ' + type;
+      box.innerHTML = html;
+    }
+
+    function clearStatus() {
+      const box = el('statusMsg');
+      box.className = 'status-msg';
+      box.innerHTML = '';
+    }
+
+    function destroyChart(refName) {
+      if (refName === 'temporal' && chartTemporal) { chartTemporal.destroy(); chartTemporal = null; }
+      if (refName === 'hourly' && chartHourly) { chartHourly.destroy(); chartHourly = null; }
+      if (refName === 'energy' && chartEnergy) { chartEnergy.destroy(); chartEnergy = null; }
+    }
+
+    function destroyAllCharts() {
+      destroyChart('temporal');
+      destroyChart('hourly');
+      destroyChart('energy');
+    }
+
+    function chartDefaults() {
+      const C = getChartColors();
+      return {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { labels: { color: C.text } },
+          tooltip: {
+            mode: 'index',
+            intersect: false,
+            callbacks: {
+              label: (ctx) => {
+                const v = ctx.parsed.y;
+                return `${ctx.dataset.label}: ${v == null ? '—' : v.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: { ticks: { color: C.textMuted }, grid: { color: C.grid } },
+          y: { ticks: { color: C.textMuted }, grid: { color: C.gridStrong } }
+        }
+      };
+    }
+
+    async function fetchJSON(url) {
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`HTTP ${r.status} em ${url}`);
+      return r.json();
+    }
+
+    function preferActiveDevice() {
+      const select = el('deviceSelect');
+      if (!select || !select.options.length) return;
+      for (const opt of select.options) {
+        if (String(opt.dataset.active).toLowerCase() === 'true') {
+          select.value = opt.value;
+          return;
+        }
+      }
+    }
+
+    async function loadAvailableMetrics(preferMetric) {
+      const deviceId = el('deviceSelect').value;
+      const period = el('periodSelect').value;
+      const select = el('metricSelect');
+      if (!deviceId) {
+        select.innerHTML = '<option value="">Sem dispositivo</option>';
+        return [];
+      }
+
+      const available = await fetchJSON(`/api/metrics/available?device_id=${deviceId}&period=${period}`);
+      select.innerHTML = '';
+
+      if (!available.length) {
+        select.innerHTML = '<option value="">Nenhuma métrica com dados</option>';
+        return [];
+      }
+
+      available.forEach((item) => {
+        const opt = document.createElement('option');
+        opt.value = item.metric;
+        const label = METRIC_LABELS[item.metric] || item.metric;
+        opt.textContent = `${label} (${item.count})`;
+        select.appendChild(opt);
+      });
+
+      const preferredOrder = ['power', 'power_total', 'switch_status', 'voltage', 'energy_wh', 'current'];
+      let chosen = preferMetric && available.some(a => a.metric === preferMetric) ? preferMetric : null;
+      if (!chosen) {
+        chosen = preferredOrder.find(m => available.some(a => a.metric === m)) || available[0].metric;
+      }
+      select.value = chosen;
+      return available;
+    }
+
+    const PERIOD_LABELS = { '1h': 'hora', '6h': '6 horas', '1d': 'dia', '1w': 'semana', '1m': 'mês', '1y': 'ano' };
+
+    function fmtDelta(pct) {
+      if (pct === null || pct === undefined || isNaN(pct)) return '<span style="color:var(--text-faint)">sem período anterior para comparar</span>';
+      const color = pct > 0 ? 'var(--danger)' : (pct < 0 ? 'var(--ok)' : 'var(--text-muted)');
+      const arrow = pct > 0 ? '&#9650;' : (pct < 0 ? '&#9660;' : '&#9679;');
+      return `<span style="color:${color}">${arrow} ${Math.abs(pct).toFixed(1)}%</span>`;
+    }
+
+    async function loadPeriodSummary(deviceId, metric, period) {
+      try {
+        const data = await fetchJSON(`/api/metrics/period_summary?device_id=${deviceId}&metric=${metric}&period=${period}`);
+        const six = data.current.six_sigma;
+        const label = METRIC_LABELS[metric] || metric;
+
+        if (six.std === 0 && data.current.summary.count === 0) {
+          el('sixSigmaBox').innerHTML = '<em>Sem dados no período.</em>';
+        } else {
+          let cpkLine;
+          if (six.cpk_real) {
+            const quality = six.cpk >= 1.33 ? ['Ótima', 'var(--ok)'] : (six.cpk >= 1.0 ? ['Aceitável', 'var(--warn)'] : ['Fora de especificação', 'var(--danger)']);
+            cpkLine = `
+              <strong>Cpk:</strong> <span style="color:${quality[1]}">${six.cpk.toFixed(2)} (${quality[0]})</span><br>
+              <strong>LSL / USL:</strong> ${six.lsl.toFixed(2)} / ${six.usl.toFixed(2)}
+            `;
+          } else {
+            cpkLine = `
+              <strong>Índice de dispersão:</strong> ${six.cpk.toFixed(2)}<br>
+              <span style="color:var(--text-faint)">Sem limite de especificação cadastrado para ${label} — índice apenas auto-referenciado (média ± 3σ), não é um Cpk real.</span>
+            `;
+          }
+          el('sixSigmaBox').innerHTML = `
+            <strong>Média:</strong> ${six.mean.toFixed(3)}<br>
+            <strong>Desvio padrão (σ):</strong> ${six.std.toFixed(3)}<br>
+            ${cpkLine}
+          `;
+        }
+
+        const cur = data.current.summary;
+        const prev = data.previous.summary;
+        const periodLabel = PERIOD_LABELS[period] || period;
+        let consumptionRow = '';
+        if (data.current.consumption !== null && data.current.consumption !== undefined) {
+          const prevConsumption = data.previous.consumption;
+          const consDeltaPct = (prevConsumption && prevConsumption !== 0)
+            ? ((data.current.consumption - prevConsumption) / Math.abs(prevConsumption)) * 100
+            : null;
+          consumptionRow = `
+            <hr style="margin:8px 0;border-color:var(--border)">
+            <strong>Consumo no período:</strong> ${data.current.consumption.toFixed(3)}<br>
+            <strong>Consumo no ${periodLabel} anterior:</strong> ${prevConsumption != null ? prevConsumption.toFixed(3) : '—'}<br>
+            <strong>Variação:</strong> ${fmtDelta(consDeltaPct)}
+          `;
+        }
+
+        el('periodCompareBox').innerHTML = `
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+            <div>
+              <strong>${periodLabel.charAt(0).toUpperCase() + periodLabel.slice(1)} atual</strong><br>
+              Média: ${cur.mean.toFixed(3)}<br>
+              Mín / Máx: ${cur.min.toFixed(3)} / ${cur.max.toFixed(3)}<br>
+              Amostras: ${cur.count}
+            </div>
+            <div>
+              <strong>${periodLabel.charAt(0).toUpperCase() + periodLabel.slice(1)} anterior</strong><br>
+              Média: ${prev.count ? prev.mean.toFixed(3) : '—'}<br>
+              Mín / Máx: ${prev.count ? (prev.min.toFixed(3) + ' / ' + prev.max.toFixed(3)) : '—'}<br>
+              Amostras: ${prev.count}
+            </div>
+          </div>
+          <hr style="margin:8px 0;border-color:var(--border)">
+          <strong>Variação da média:</strong> ${fmtDelta(data.delta_pct)}
+          ${consumptionRow}
+        `;
+      } catch (error) {
+        console.error('Erro ao carregar period_summary:', error);
+        el('sixSigmaBox').innerHTML = `<em>${error.message}</em>`;
+        el('periodCompareBox').innerHTML = `<em>${error.message}</em>`;
+      }
+    }
 
     async function loadAnalytics() {
-      const deviceId = el('deviceSelect').value;
-      const metric = el('metricSelect').value;
-      const period = el('periodSelect').value;
-
-      if (!deviceId) return;
+      if (loading) return;
+      loading = true;
+      el('loadBtn').disabled = true;
 
       try {
-        // Buscar dados temporais agregados
-        const timeData = await fetch(`/api/metrics/timerange?device_id=${deviceId}&metric=${metric}&period=${period}`)
-          .then(r => r.json());
+        const deviceId = el('deviceSelect').value;
+        const period = el('periodSelect').value;
+        if (!deviceId) {
+          setStatus('warn', 'Cadastre/ative um dispositivo para analisar.');
+          return;
+        }
 
-        if (timeData.data && timeData.data.length > 0) {
+        const available = await loadAvailableMetrics(el('metricSelect').value);
+        const metric = el('metricSelect').value;
+
+        if (!metric || !available.length) {
+          destroyAllCharts();
+          el('statsBox').innerHTML = '<em>Sem medições neste período.</em>';
+          el('demandBox').innerHTML = '<em>Sem dados.</em>';
+          setStatus('warn', 'Nenhum dado real neste período. O sistema não inventa medições. Aguarde o poller ou escolha outro período/dispositivo.');
+          return;
+        }
+
+        clearStatus();
+        setStatus('info', `Carregando <strong>${METRIC_LABELS[metric] || metric}</strong> · período ${period}...`);
+
+        const timeData = await fetchJSON(`/api/metrics/timerange?device_id=${deviceId}&metric=${metric}&period=${period}`);
+
+        destroyChart('temporal');
+        destroyChart('energy');
+
+        if (!timeData.data || timeData.data.length === 0) {
+          el('statsBox').innerHTML = '<em>Nenhum ponto agregado no período.</em>';
+          setStatus('warn', `Sem dados de <strong>${metric}</strong> no período selecionado.`);
+        } else {
           const labels = timeData.data.map(d => new Date(d.timestamp).toLocaleString());
           const means = timeData.data.map(d => d.mean);
           const mins = timeData.data.map(d => d.min);
           const maxs = timeData.data.map(d => d.max);
 
-          if (!chartTemporal) {
-            chartTemporal = new Chart(el('chartTemporal'), {
-              type: 'line',
-              data: {
-                labels: labels,
-                datasets: [
-                  { label: 'Mínimo', data: mins, borderColor: '#457b9d', backgroundColor: '#457b9d30', fill: true, tension: 0.4 },
-                  { label: 'Média', data: means, borderColor: '#2a9d8f', backgroundColor: '#2a9d8f50', fill: true, tension: 0.4, borderWidth: 3 },
-                  { label: 'Máximo', data: maxs, borderColor: '#e63946', backgroundColor: '#e6394630', fill: true, tension: 0.4 }
-                ]
-              },
-              options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                interaction: { mode: 'index', intersect: false }
-              }
-            });
-          } else {
-            chartTemporal.data.labels = labels;
-            chartTemporal.data.datasets[0].data = mins;
-            chartTemporal.data.datasets[1].data = means;
-            chartTemporal.data.datasets[2].data = maxs;
-            chartTemporal.update();
-          }
+          const C = getChartColors();
+          chartTemporal = new Chart(el('chartTemporal'), {
+            type: 'line',
+            data: {
+              labels,
+              datasets: [
+                { label: 'Mínimo', data: mins, borderColor: C.current, backgroundColor: hexToRgba(C.current, 0.12), fill: true, tension: 0.35, borderWidth: 2 },
+                { label: 'Média', data: means, borderColor: C.power, backgroundColor: hexToRgba(C.power, 0.18), fill: true, tension: 0.35, borderWidth: 3 },
+                { label: 'Máximo', data: maxs, borderColor: C.phaseL1, backgroundColor: hexToRgba(C.phaseL1, 0.12), fill: true, tension: 0.35, borderWidth: 2 }
+              ]
+            },
+            options: {
+              ...chartDefaults(),
+              interaction: { mode: 'index', intersect: false }
+            }
+          });
 
-          // Estatísticas
           const allMeans = means.filter(v => !isNaN(v));
-          const statsHTML = `
-            <strong>Período:</strong> ${timeData.resample_freq}<br>
-            <strong>Amostras:</strong> ${timeData.data.length}<br>
-            <strong>Média geral:</strong> ${(allMeans.reduce((a,b) => a+b, 0) / allMeans.length).toFixed(2)}<br>
-            <strong>Valor máximo:</strong> ${Math.max(...maxs).toFixed(2)}<br>
-            <strong>Valor mínimo:</strong> ${Math.min(...mins).toFixed(2)}
+          const avg = allMeans.length ? (allMeans.reduce((a, b) => a + b, 0) / allMeans.length) : 0;
+          el('statsBox').innerHTML = `
+            <strong>Métrica:</strong> ${METRIC_LABELS[metric] || metric}<br>
+            <strong>Agregação:</strong> ${timeData.resample_freq}<br>
+            <strong>Pontos:</strong> ${timeData.data.length}<br>
+            <strong>Média:</strong> ${avg.toFixed(3)}<br>
+            <strong>Máx:</strong> ${Math.max(...maxs).toFixed(3)}<br>
+            <strong>Mín:</strong> ${Math.min(...mins).toFixed(3)}<br>
+            <strong>De:</strong> ${new Date(timeData.start).toLocaleString()}<br>
+            <strong>Até:</strong> ${new Date(timeData.end).toLocaleString()}
           `;
-          el('statsBox').innerHTML = statsHTML;
+
+          // Série principal (qualquer métrica)
+          chartEnergy = new Chart(el('chartEnergy'), {
+            type: 'line',
+            data: {
+              labels,
+              datasets: [{
+                label: METRIC_LABELS[metric] || metric,
+                data: means,
+                borderColor: metric === 'switch_status' ? C.energy : C.voltage,
+                backgroundColor: metric === 'switch_status' ? hexToRgba(C.energy, 0.2) : hexToRgba(C.voltage, 0.2),
+                fill: true,
+                tension: metric === 'switch_status' ? 0 : 0.35,
+                stepped: metric === 'switch_status',
+                borderWidth: 3
+              }]
+            },
+            options: chartDefaults()
+          });
+
+          setStatus('info', `OK: ${timeData.data.length} pontos reais de <strong>${METRIC_LABELS[metric] || metric}</strong>.`);
         }
 
-        // Análise de demanda (apenas para métricas de potência)
-        const isPowerMetric = metric === 'power' || metric.startsWith('power_');
+        // Demanda / horário
+        destroyChart('hourly');
+        const isPowerMetric = metric === 'power' || metric.startsWith('power_') || metric === 'switch_status';
         if (isPowerMetric) {
-          const demandData = await fetch(`/api/metrics/demand?device_id=${deviceId}&period=${period}&metric=${metric}`)
-            .then(r => r.json());
-
-          if (!demandData.error) {
-            const demandHTML = `
-              <strong>🔴 Horário de Ponta (18h-21h)</strong><br>
-              Máx: ${demandData.peak.max.toFixed(2)} W<br>
-              Média: ${demandData.peak.mean.toFixed(2)} W<br>
-              <hr style="margin:8px 0">
-              <strong>🟢 Fora-Ponta</strong><br>
-              Máx: ${demandData.off_peak.max.toFixed(2)} W<br>
-              Média: ${demandData.off_peak.mean.toFixed(2)} W<br>
-              <hr style="margin:8px 0">
-              <strong>📊 Geral</strong><br>
-              Máx: ${demandData.overall.max.toFixed(2)} W<br>
-              Média: ${demandData.overall.mean.toFixed(2)} W
+          const demandData = await fetchJSON(`/api/metrics/demand?device_id=${deviceId}&period=${period}&metric=${metric}`);
+          if (demandData.error) {
+            el('demandBox').innerHTML = `<em>${demandData.error}</em>`;
+          } else {
+            const unit = metric === 'switch_status' ? '' : ' W';
+            el('demandBox').innerHTML = `
+              <strong style="color:var(--danger)">Ponta (18h-21h)</strong><br>
+              Máx: ${demandData.peak.max.toFixed(3)}${unit}<br>
+              Média: ${demandData.peak.mean.toFixed(3)}${unit}<br>
+              Amostras: ${demandData.peak.samples}<br>
+              <hr style="margin:8px 0;border-color:var(--border)">
+              <strong style="color:var(--ok)">Fora-ponta</strong><br>
+              Máx: ${demandData.off_peak.max.toFixed(3)}${unit}<br>
+              Média: ${demandData.off_peak.mean.toFixed(3)}${unit}<br>
+              Amostras: ${demandData.off_peak.samples}<br>
+              <hr style="margin:8px 0;border-color:var(--border)">
+              <strong>Geral</strong><br>
+              Máx: ${demandData.overall.max.toFixed(3)}${unit}<br>
+              Média: ${demandData.overall.mean.toFixed(3)}${unit}
             `;
-            el('demandBox').innerHTML = demandHTML;
 
-            // Curva de carga horária
-            const hourlyLabels = demandData.hourly_average.map(h => `${h.hour}h`);
-            const hourlyData = demandData.hourly_average.map(h => h.power);
-
-            if (!chartHourly) {
+            if (demandData.hourly_average && demandData.hourly_average.length) {
+              const hourlyLabels = demandData.hourly_average.map(h => `${h.hour}h`);
+              const hourlyData = demandData.hourly_average.map(h => h.power);
+              const C2 = getChartColors();
               chartHourly = new Chart(el('chartHourly'), {
                 type: 'bar',
                 data: {
                   labels: hourlyLabels,
                   datasets: [{
-                    label: 'Potência Média (W)',
+                    label: METRIC_LABELS[metric] || metric,
                     data: hourlyData,
                     backgroundColor: hourlyData.map((_, i) => {
                       const hour = demandData.hourly_average[i].hour;
-                      return (hour >= 18 && hour < 21) ? '#e6394680' : '#2a9d8f80';
+                      return (hour >= 18 && hour < 21) ? hexToRgba(C2.phaseL1, 0.65) : hexToRgba(C2.power, 0.6);
                     }),
-                    borderColor: '#0a9396',
+                    borderColor: C2.power,
                     borderWidth: 1
                   }]
                 },
-                options: { responsive: true, maintainAspectRatio: false }
+                options: chartDefaults()
               });
-            } else {
-              chartHourly.data.labels = hourlyLabels;
-              chartHourly.data.datasets[0].data = hourlyData;
-              chartHourly.update();
             }
           }
         } else {
-          el('demandBox').innerHTML = '<em style="color:#888">Análise de demanda disponível apenas para métricas de Potência</em>';
+          el('demandBox').innerHTML = '<em>Demanda horária disponível para potência ou switch.</em>';
         }
 
-        // Gráfico de energia acumulada (se for energia)
-        if (metric === 'energy_wh') {
-          const energyData = timeData.data.map(d => ({
-            timestamp: d.timestamp,
-            energy_kwh: d.mean / 1000
-          }));
-
-          const energyLabels = energyData.map(d => new Date(d.timestamp).toLocaleDateString());
-          const energyValues = energyData.map(d => d.energy_kwh);
-
-          if (!chartEnergy) {
-            chartEnergy = new Chart(el('chartEnergy'), {
-              type: 'line',
-              data: {
-                labels: energyLabels,
-                datasets: [{
-                  label: 'Energia (kWh)',
-                  data: energyValues,
-                  borderColor: '#f77f00',
-                  backgroundColor: '#f77f0030',
-                  fill: true,
-                  tension: 0.4
-                }]
-              },
-              options: { responsive: true, maintainAspectRatio: false }
-            });
-          } else {
-            chartEnergy.data.labels = energyLabels;
-            chartEnergy.data.datasets[0].data = energyValues;
-            chartEnergy.update();
-          }
-        }
-
+        await loadPeriodSummary(deviceId, metric, period);
       } catch (error) {
-        console.error('Erro ao carregar analytics:', error);
+        console.error(error);
+        setStatus('err', `Erro ao carregar analytics: ${error.message}`);
+        el('statsBox').innerHTML = `<em>${error.message}</em>`;
+      } finally {
+        loading = false;
+        el('loadBtn').disabled = false;
       }
     }
 
     window.addEventListener('DOMContentLoaded', () => {
+      preferActiveDevice();
       el('loadBtn').addEventListener('click', loadAnalytics);
-      el('periodSelect').addEventListener('change', loadAnalytics);
+      document.querySelectorAll('.period-btn').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.period-btn').forEach((b) => b.classList.remove('active'));
+          btn.classList.add('active');
+          el('periodSelect').value = btn.dataset.period || '1d';
+          destroyAllCharts();
+          loadAnalytics();
+        });
+      });
+      el('deviceSelect').addEventListener('change', () => {
+        destroyAllCharts();
+        loadAnalytics();
+      });
+      el('metricSelect').addEventListener('change', () => {
+        destroyAllCharts();
+        loadAnalytics();
+      });
+      window.addEventListener('theme-changed', () => {
+        destroyAllCharts();
+        loadAnalytics();
+      });
       loadAnalytics();
     });
   </script>
-</body>
-</html>
+{% endblock %}

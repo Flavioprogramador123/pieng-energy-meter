@@ -7,6 +7,7 @@ from .. import crud, schemas, models
 from ..connectors.modbus import ModbusRTUClient, ModbusTCPClient
 from ..connectors.pzem004t import read_pzem004t_metrics
 from ..connectors.eastron_sdm630 import read_sdm630_metrics
+from . import firebase_sync
 
 # Configurar logger de auditoria
 logger = logging.getLogger("pieng.audit")
@@ -27,6 +28,7 @@ def poll_modbus_devices():
                 continue
             cfg = d.config or {}
             try:
+                saved_metrics: dict = {}
                 with ModbusRTUClient(
                     port=cfg.get("port", "COM3"),
                     slave_id=int(cfg.get("slave_id", 1)),
@@ -38,11 +40,13 @@ def poll_modbus_devices():
                         for k in ["voltage", "current", "power", "energy_wh"]:
                             if k in values:
                                 crud.create_measurement(db, schemas.MeasurementCreate(device_id=d.id, metric=k, value=float(values[k])))
+                                saved_metrics[k] = float(values[k])
                     elif cfg.get("driver") == "sdm630":
                         values = read_sdm630_metrics(client, base_address=int(cfg.get("base", 0)))
                         for k, v in values.items():
                             if not k.startswith("_") and isinstance(v, (int, float)):
                                 crud.create_measurement(db, schemas.MeasurementCreate(device_id=d.id, metric=k, value=float(v)))
+                                saved_metrics[k] = float(v)
                     else:
                         # leitura genérica de regs
                         regs = client.read_input_registers(address=int(cfg.get("base", 0)), count=int(cfg.get("count", 4)))
@@ -50,6 +54,8 @@ def poll_modbus_devices():
                         for idx, val in enumerate(regs):
                             metric = metrics[idx] if idx < len(metrics) else f"reg_{idx}"
                             crud.create_measurement(db, schemas.MeasurementCreate(device_id=d.id, metric=metric, value=float(val)))
+                            saved_metrics[metric] = float(val)
+                firebase_sync.push_reading(d.id, d.name, "modbus", saved_metrics)
             except Exception as e:
                 logger.error(f"POLL_RTU_ERROR | device_id={d.id} | name={d.name} | error={str(e)}")
                 print(f"Erro ao ler dispositivo Modbus RTU {d.id} ({d.name}): {e}")
@@ -69,6 +75,7 @@ def poll_modbus_tcp_devices():
                 continue
             cfg = d.config or {}
             try:
+                saved_metrics: dict = {}
                 with ModbusTCPClient(
                     host=cfg.get("host", "192.168.1.100"),
                     port=int(cfg.get("port", 502)),
@@ -81,6 +88,7 @@ def poll_modbus_tcp_devices():
                         for k in ["voltage", "current", "power", "energy_wh"]:
                             if k in values:
                                 crud.create_measurement(db, schemas.MeasurementCreate(device_id=d.id, metric=k, value=float(values[k])))
+                                saved_metrics[k] = float(values[k])
                     elif cfg.get("driver") == "sdm630":
                         values = read_sdm630_metrics(client, base_address=int(cfg.get("base", 0)))
                         metrics_count = sum(1 for k in values.keys() if not k.startswith("_"))
@@ -88,6 +96,7 @@ def poll_modbus_tcp_devices():
                         for k, v in values.items():
                             if not k.startswith("_") and isinstance(v, (int, float)):
                                 crud.create_measurement(db, schemas.MeasurementCreate(device_id=d.id, metric=k, value=float(v)))
+                                saved_metrics[k] = float(v)
                     else:
                         # leitura genérica de regs
                         regs = client.read_input_registers(address=int(cfg.get("base", 0)), count=int(cfg.get("count", 4)))
@@ -96,6 +105,8 @@ def poll_modbus_tcp_devices():
                         for idx, val in enumerate(regs):
                             metric = metrics[idx] if idx < len(metrics) else f"reg_{idx}"
                             crud.create_measurement(db, schemas.MeasurementCreate(device_id=d.id, metric=metric, value=float(val)))
+                            saved_metrics[metric] = float(val)
+                firebase_sync.push_reading(d.id, d.name, "modbus_tcp", saved_metrics)
             except Exception as e:
                 logger.error(f"POLL_TCP_ERROR | device_id={d.id} | name={d.name} | host={cfg.get('host')} | error={str(e)}")
                 print(f"Erro ao ler dispositivo Modbus TCP {d.id} ({d.name}): {e}")

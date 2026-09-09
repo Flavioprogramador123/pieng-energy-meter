@@ -776,3 +776,4 @@ logging.basicConfig(level=logging.DEBUG)
 **Status**: 📋 Pronto para implementação  
 **Próximo**: Obter credenciais Tuya e testar integração
 
+

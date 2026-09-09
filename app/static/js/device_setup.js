@@ -110,27 +110,86 @@ function displayDevices(devices) {
     const container = document.getElementById('devices-container');
     
     if (devices.length === 0) {
-        container.innerHTML = '<p style="color: #999; text-align: center; padding: 20px;">Nenhum dispositivo cadastrado ainda</p>';
+        container.innerHTML = '<p style="color: var(--text-faint); text-align: center; padding: 20px;">Nenhum dispositivo cadastrado ainda</p>';
         return;
     }
-    
+
     const deviceTypeNames = {
-        'tuya': '📡 Tuya Cloud',
-        'modbus': '🔌 Modbus RTU',
-        'modbus_tcp': '🌐 Modbus TCP'
+        'tuya': 'Tuya Cloud',
+        'modbus': 'Modbus RTU',
+        'modbus_tcp': 'Modbus TCP'
     };
-    
+
     container.innerHTML = devices.map(device => `
         <div class="device-item">
             <div class="device-info">
                 <div class="device-name">${device.name}</div>
-                <div class="device-type">${deviceTypeNames[device.device_type] || device.device_type}</div>
+                <div class="device-type">${deviceTypeNames[device.device_type] || device.device_type} · ${deviceIdentifier(device)}</div>
             </div>
-            <span class="device-status ${device.active ? 'status-active' : 'status-inactive'}">
-                ${device.active ? '✅ Ativo' : '❌ Inativo'}
-            </span>
+            <div class="device-actions">
+                <span class="device-status ${device.active ? 'status-active' : 'status-inactive'}">
+                    ${device.active ? 'ATIVO' : 'INATIVO'}
+                </span>
+                <button type="button" class="btn-icon" title="${device.active ? 'Desativar' : 'Ativar'}" onclick="toggleDeviceActive(${device.id}, ${device.active})">
+                    ${device.active ? '&#10074;&#10074;' : '&#9654;'}
+                </button>
+                <button type="button" class="btn-icon btn-icon-danger" title="Apagar dispositivo" onclick="deleteDevice(${device.id}, '${device.name.replace(/'/g, "\\'")}')">
+                    &#10005;
+                </button>
+            </div>
         </div>
     `).join('');
+}
+
+function deviceIdentifier(device) {
+    const cfg = device.config || {};
+    if (cfg.device_id) return cfg.device_id;
+    if (cfg.host) return `${cfg.host}:${cfg.port || ''}`;
+    if (cfg.port) return `${cfg.port} (slave ${cfg.slave_id ?? '?'})`;
+    return `id ${device.id}`;
+}
+
+// ============================================================================
+// DELETE / TOGGLE DEVICE
+// ============================================================================
+
+async function deleteDevice(deviceId, deviceName) {
+    const confirmed = confirm(`Apagar o dispositivo "${deviceName}"?\n\nIsso remove o cadastro e TODO o histórico de medições dele. Essa ação não pode ser desfeita.`);
+    if (!confirmed) return;
+
+    try {
+        const response = await fetch(`/api/devices/${deviceId}`, { method: 'DELETE' });
+        const result = await response.json();
+
+        if (response.ok && result.success) {
+            showAlert(`Dispositivo "${deviceName}" apagado`, 'success');
+            loadDevices();
+        } else {
+            showAlert('Erro ao apagar dispositivo', 'error');
+        }
+    } catch (error) {
+        console.error('Error deleting device:', error);
+        showAlert(`Erro: ${error.message}`, 'error');
+    }
+}
+
+async function toggleDeviceActive(deviceId, currentActive) {
+    try {
+        const response = await fetch(`/api/devices/${deviceId}`, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ active: !currentActive })
+        });
+
+        if (response.ok) {
+            loadDevices();
+        } else {
+            showAlert('Erro ao atualizar dispositivo', 'error');
+        }
+    } catch (error) {
+        console.error('Error toggling device:', error);
+        showAlert(`Erro: ${error.message}`, 'error');
+    }
 }
 
 // ============================================================================
@@ -161,20 +220,20 @@ async function submitForm(event, engineType) {
         const device = await createDevice(clientId, formData);
         
         if (device) {
-            showAlert('✅ Dispositivo cadastrado com sucesso! O poller vai começar a coletar dados em até 30 segundos.', 'success');
-            
+            showAlert('Dispositivo cadastrado com sucesso! O poller vai começar a coletar dados em até 30 segundos.', 'success');
+
             // Reload devices list
             setTimeout(() => {
                 loadDevices();
                 backToSelection();
             }, 2000);
         } else {
-            showAlert('❌ Erro ao cadastrar dispositivo', 'error');
+            showAlert('Erro ao cadastrar dispositivo', 'error');
         }
         
     } catch (error) {
         console.error('Error submitting form:', error);
-        showAlert(`❌ Erro: ${error.message}`, 'error');
+        showAlert(`Erro: ${error.message}`, 'error');
     }
 }
 
@@ -418,4 +477,5 @@ setInterval(() => {
         loadDevices();
     }
 }, 30000);
+
 

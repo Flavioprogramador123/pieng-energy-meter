@@ -53,26 +53,57 @@ def linear_regression(x: pd.Series, y: pd.Series) -> dict[str, float]:
     return {"slope": float(slope), "intercept": float(intercept), "r2": float(r2)}
 
 
-def six_sigma_params(series: pd.Series) -> dict[str, float]:
+# Limites de especificação (LSL/USL) para métricas elétricas com padrão definido
+# (PRODIST Módulo 8 - faixa "adequada" de tensão em 220V nominal; frequência e
+# fator de potência conforme referências usuais de qualidade de energia).
+# Sem limite conhecido, o Cpk cai para o modo "auto-referenciado" (ver abaixo).
+SPEC_LIMITS: dict[str, tuple[float, float]] = {
+    "voltage": (209.0, 231.0),
+    "voltage_l1": (209.0, 231.0),
+    "voltage_l2": (209.0, 231.0),
+    "voltage_l3": (209.0, 231.0),
+    "voltage_avg": (209.0, 231.0),
+    "frequency": (58.8, 61.2),
+    "power_factor": (0.92, 1.0),
+}
+
+
+def six_sigma_params(series: pd.Series, metric: str | None = None) -> dict[str, float | bool | str]:
     clean = series.dropna()
     if clean.empty:
-        return {"mean": 0.0, "std": 0.0, "cpk": 0.0}
-    
+        return {"mean": 0.0, "std": 0.0, "cpk": 0.0, "lsl": None, "usl": None, "cpk_real": False}
+
     mean_val = clean.mean()
     std_val = clean.std(ddof=1) if clean.count() > 1 else 0.0
-    
+
     # Verificar se os valores são válidos (não NaN)
     mean_val = 0.0 if np.isnan(mean_val) else float(mean_val)
     std_val = 0.0 if np.isnan(std_val) else float(std_val)
-    
-    # Cpk depende de limites especificados; como placeholder, considerar LSL/USL +/- 3 sigma
+
+    spec = SPEC_LIMITS.get(metric) if metric else None
+
     if std_val == 0.0:
-        cpk = 0.0
+        return {"mean": mean_val, "std": std_val, "cpk": 0.0, "lsl": spec[0] if spec else None,
+                "usl": spec[1] if spec else None, "cpk_real": spec is not None}
+
+    if spec:
+        lsl, usl = spec
+        cpk = min((usl - mean_val) / (3 * std_val), (mean_val - lsl) / (3 * std_val))
+        cpk_real = True
     else:
+        # Sem especificação conhecida: usa média +/- 3 sigma como referência
+        # (fica sempre próximo de 1.0 - serve só como indicador de dispersão relativa,
+        # não é um Cpk de verdade; sinalizado via cpk_real=False para a UI avisar).
         usl = mean_val + 3 * std_val
         lsl = mean_val - 3 * std_val
         cpk = min((usl - mean_val) / (3 * std_val), (mean_val - lsl) / (3 * std_val))
-        cpk = 0.0 if np.isnan(cpk) else float(cpk)
-    
-    return {"mean": mean_val, "std": std_val, "cpk": cpk}
+        cpk_real = False
+
+    cpk = 0.0 if np.isnan(cpk) else float(cpk)
+
+    return {
+        "mean": mean_val, "std": std_val, "cpk": cpk,
+        "lsl": lsl if cpk_real else None, "usl": usl if cpk_real else None,
+        "cpk_real": cpk_real,
+    }
 

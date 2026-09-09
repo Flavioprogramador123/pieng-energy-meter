@@ -1,37 +1,351 @@
-body{font-family:system-ui,Segoe UI,Arial,sans-serif;margin:0;padding:0;background:#f6f8fa;color:#222}
-header{padding:16px 24px;background:#0a9396;color:#fff}
-.filters{display:flex;gap:12px;align-items:center;padding:12px 16px;background:#e9ecef}
-.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;padding:16px;grid-auto-rows:minmax(180px,auto)}
-.card{background:#fff;border:1px solid #dfe3e8;border-radius:8px;padding:16px;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 2px 4px rgba(0,0,0,0.08)}
-.card h3{margin:0 0 12px 0;font-size:15px;font-weight:600;color:#444}
-.card-live{text-align:center;justify-content:center;min-height:140px}
-.live-value{font-size:32px;font-weight:700;color:#0a9396;margin-top:8px}
-.card-chart{min-height:280px}
-.card-chart canvas{flex:1;max-height:240px;width:100%!important;height:240px!important}
-canvas{max-width:100%;max-height:240px}
-.status-indicator{display:inline-block;width:12px;height:12px;border-radius:50%;margin-left:8px}
-.status-online{background:#22c55e;box-shadow:0 0 8px #22c55e}
-.status-offline{background:#ef4444;box-shadow:0 0 8px #ef4444}
-.btn-config,.btn-delete{padding:6px 12px;border:none;border-radius:6px;cursor:pointer;font-size:16px;background:#fff;border:1px solid #ddd}
-.btn-config:hover{background:#f0f0f0}
-.btn-delete{color:#ef4444}
-.btn-delete:hover{background:#fee}
-.modal{display:none;position:fixed;z-index:1000;left:0;top:0;width:100%;height:100%;overflow:auto;background:rgba(0,0,0,0.5)}
-.modal-content{background:#fff;margin:5% auto;padding:24px;border-radius:12px;width:90%;max-width:500px;box-shadow:0 4px 12px rgba(0,0,0,0.2)}
-.close{color:#999;float:right;font-size:28px;font-weight:bold;cursor:pointer}
-.close:hover{color:#000}
-#configForm label{display:block;margin:12px 0 4px;font-weight:600;font-size:14px}
-#configForm input,#configForm select{width:100%;padding:8px;border:1px solid #ddd;border-radius:6px;font-size:14px;box-sizing:border-box}
-#configForm input[type="checkbox"]{width:auto;margin-right:8px}
-.btn-test,.btn-save{padding:10px 20px;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600}
-.btn-test{background:#457b9d;color:#fff}
-.btn-test:hover{background:#2a5f7f}
-.btn-save{background:#0a9396;color:#fff;flex:1}
-.btn-save:hover{background:#087074}
-#testResult{border-radius:6px}
-#testResult.success{background:#d1fae5;color:#065f46;border:1px solid #22c55e}
-#testResult.error{background:#fee;color:#991b1b;border:1px solid #ef4444}
-@media (max-width: 1600px){.grid{grid-template-columns:repeat(3,1fr)}}
-@media (max-width: 1200px){.grid{grid-template-columns:repeat(2,1fr)}}
-@media (max-width: 800px){.grid{grid-template-columns:1fr}}
+/* =========================================================================
+   Energy Meter — Design System "Painel de Instrumentação"
+   Paleta técnica (grafite + uma cor de marca), leituras em monoespaçada
+   estilo mostrador digital, cores de fase R-S-T (convenção trifásica).
+   ========================================================================= */
 
+:root{
+  --bg-0:#0b0e13;
+  --bg-1:#12161d;
+  --bg-2:#1a2029;
+  --bg-3:#212834;
+  --border:#2a3341;
+  --border-soft:#1e2530;
+
+  --text:#e6edf3;
+  --text-muted:#8b98a8;
+  --text-faint:#5b6675;
+
+  --brand:#0a9396;
+  --brand-light:#2dd4bf;
+  --brand-dim:#0a939633;
+
+  /* Fases R-S-T (convenção de instrumentação trifásica) */
+  --phase-l1:#e5484d; /* R */
+  --phase-l2:#f2b705; /* S */
+  --phase-l3:#3b82f6; /* T */
+
+  /* Grandezas */
+  --m-voltage:#f2b705;
+  --m-current:#3b82f6;
+  --m-power:#0a9396;
+  --m-energy:#8b7cf6;
+  --m-pf:#3fb950;
+  --m-cost:#d4a72c;
+  --m-switch:#8b98a8;
+
+  --ok:#3fb950;
+  --danger:#f85149;
+  --warn:#d29922;
+
+  --badge-ok-bg:#0f2b1c; --badge-ok-text:#7ee2a8;
+  --badge-err-bg:#2b1414; --badge-err-text:#ff9d97;
+  --badge-warn-bg:#2a2210; --badge-warn-text:#e8c766;
+  --badge-info-bg:#0c2733; --badge-info-text:#7dd3fc;
+
+  --radius:8px;
+  --radius-sm:6px;
+  --mono:'JetBrains Mono','SFMono-Regular',Consolas,'Roboto Mono',monospace;
+  --sans:'Segoe UI',system-ui,Arial,sans-serif;
+}
+
+/* ===== Tema claro ===== */
+:root[data-theme="light"]{
+  --bg-0:#f4f6f8;
+  --bg-1:#ffffff;
+  --bg-2:#eef1f4;
+  --bg-3:#e3e8ed;
+  --border:#d8dee5;
+  --border-soft:#e5e9ee;
+
+  --text:#1a2029;
+  --text-muted:#5b6675;
+  --text-faint:#94a0ad;
+
+  --brand:#0a9396;
+  --brand-light:#0f766e;
+  --brand-dim:#0a939622;
+
+  --phase-l1:#dc2626;
+  --phase-l2:#b45309;
+  --phase-l3:#2563eb;
+
+  --m-voltage:#b45309;
+  --m-current:#2563eb;
+  --m-power:#0f766e;
+  --m-energy:#6d28d9;
+  --m-pf:#15803d;
+  --m-cost:#92660a;
+  --m-switch:#5b6675;
+
+  --ok:#15803d;
+  --danger:#dc2626;
+  --warn:#92660a;
+
+  --badge-ok-bg:#dcfce7; --badge-ok-text:#166534;
+  --badge-err-bg:#fee2e2; --badge-err-text:#991b1b;
+  --badge-warn-bg:#fef3c7; --badge-warn-text:#78350f;
+  --badge-info-bg:#dbeafe; --badge-info-text:#1e40af;
+}
+
+*{box-sizing:border-box}
+
+body{
+  font-family:var(--sans);
+  margin:0;
+  padding:0;
+  background:var(--bg-0);
+  color:var(--text);
+  -webkit-font-smoothing:antialiased;
+}
+
+a{color:inherit}
+
+/* ===== Topbar / navegação compartilhada ===== */
+.topbar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:0 24px;
+  height:56px;
+  background:var(--bg-1);
+  border-bottom:1px solid var(--border);
+}
+.brand{display:flex;align-items:center;gap:10px}
+.brand-mark{color:var(--brand-light);font-size:20px;line-height:1}
+.brand-name{
+  font-family:var(--mono);
+  font-weight:700;
+  font-size:14px;
+  letter-spacing:2px;
+  color:var(--text);
+}
+.topnav{display:flex;gap:4px}
+.topnav a{
+  padding:8px 14px;
+  font-size:13px;
+  font-weight:600;
+  text-decoration:none;
+  color:var(--text-muted);
+  border-bottom:2px solid transparent;
+  transition:color .15s ease,border-color .15s ease;
+}
+.topnav a:hover{color:var(--text)}
+.topnav a.active{color:var(--brand-light);border-bottom-color:var(--brand-light)}
+
+.topbar-right{display:flex;align-items:center;gap:20px}
+.theme-toggle{display:inline-flex;border-radius:999px;overflow:hidden;border:1px solid var(--border);background:var(--bg-2)}
+.theme-btn{border:none;background:transparent;color:var(--text-muted);padding:6px 14px;cursor:pointer;font-weight:600;font-size:12px;letter-spacing:.3px}
+.theme-btn:hover{background:var(--bg-3);color:var(--text)}
+.theme-btn.active{background:var(--brand);color:#04201f}
+
+/* ===== Barra de filtros ===== */
+.filters{
+  display:flex;
+  gap:12px;
+  align-items:center;
+  flex-wrap:wrap;
+  padding:12px 24px;
+  background:var(--bg-1);
+  border-bottom:1px solid var(--border);
+  color:var(--text-muted);
+  font-size:13px;
+}
+.filters label{display:flex;align-items:center;gap:8px}
+.filters select,
+.filters input,
+select,
+input[type="text"],
+input[type="number"]{
+  background:var(--bg-2);
+  color:var(--text);
+  border:1px solid var(--border);
+  border-radius:var(--radius-sm);
+  padding:7px 10px;
+  font-size:13px;
+  font-family:var(--sans);
+}
+.filters select:focus,
+input:focus,
+select:focus{outline:none;border-color:var(--brand);box-shadow:0 0 0 3px var(--brand-dim)}
+
+/* ===== Botões ===== */
+.btn,
+.filters button,
+button{
+  font-family:var(--sans);
+  font-size:13px;
+  font-weight:600;
+  padding:8px 14px;
+  border-radius:var(--radius-sm);
+  border:1px solid var(--border);
+  background:var(--bg-2);
+  color:var(--text);
+  cursor:pointer;
+  transition:background .15s ease,border-color .15s ease,transform .1s ease;
+}
+button:hover{background:var(--bg-3);border-color:#3a4655}
+.btn-primary,button.btn-primary{background:var(--brand);border-color:var(--brand);color:#04201f}
+.btn-primary:hover{background:var(--brand-light);border-color:var(--brand-light)}
+.btn-secondary{background:transparent}
+.btn-danger{color:var(--danger);border-color:var(--danger)}
+.btn-danger:hover{background:var(--badge-err-bg)}
+.btn-config,.btn-delete{padding:6px 12px;font-size:15px}
+.btn-delete{color:var(--danger)}
+
+/* Régua de período (Dia / Semana / Mês) */
+.period-ruler{display:inline-flex;border-radius:999px;overflow:hidden;border:1px solid var(--border);background:var(--bg-2)}
+.period-btn{border:none;background:transparent;color:var(--text-muted);padding:7px 16px;cursor:pointer;font-weight:600;font-size:12px;letter-spacing:.3px;border-radius:0}
+.period-btn:hover{background:var(--bg-3);color:var(--text)}
+.period-btn.active{background:var(--brand);color:#04201f}
+
+/* ===== Grid de cards ===== */
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;padding:20px 24px;grid-auto-rows:minmax(150px,auto)}
+.card{
+  background:var(--bg-1);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:16px;
+  display:flex;
+  flex-direction:column;
+  overflow:hidden;
+  border-top:3px solid var(--border);
+}
+.card h3{
+  margin:0 0 12px 0;
+  font-size:11px;
+  font-weight:700;
+  letter-spacing:.6px;
+  text-transform:uppercase;
+  color:var(--text-muted);
+}
+
+/* Cartões de leitura instantânea (mostrador digital) */
+.card-live{text-align:left;justify-content:center;min-height:130px}
+.live-value{
+  font-family:var(--mono);
+  font-size:34px;
+  font-weight:700;
+  font-variant-numeric:tabular-nums;
+  color:var(--text);
+  letter-spacing:.5px;
+}
+.card-voltage{border-top-color:var(--m-voltage)}
+.card-voltage .live-value{color:var(--m-voltage)}
+.card-current{border-top-color:var(--m-current)}
+.card-current .live-value{color:var(--m-current)}
+.card-power{border-top-color:var(--m-power)}
+.card-power .live-value{color:var(--brand-light)}
+.card-energy{border-top-color:var(--m-energy)}
+.card-energy .live-value{color:var(--m-energy)}
+.card-pf{border-top-color:var(--m-pf)}
+.card-pf .live-value{color:var(--m-pf)}
+.card-cost{border-top-color:var(--m-cost)}
+.card-cost .live-value{color:var(--m-cost)}
+.card-switch{border-top-color:var(--m-switch)}
+.card-switch .live-value{color:var(--text)}
+
+.card-chart{min-height:270px}
+.card-chart canvas{flex:1;max-height:230px;width:100%!important;height:230px!important}
+canvas{max-width:100%;max-height:230px}
+.card-chart-voltage{border-top-color:var(--m-voltage)}
+.card-chart-current{border-top-color:var(--m-current)}
+.card-chart-power{border-top-color:var(--m-power)}
+.card-chart-energy{border-top-color:var(--m-energy)}
+.card-chart-multi{border-top-color:var(--brand)}
+.card-alarms{border-top-color:var(--danger)}
+.card-averages{border-top-color:var(--m-pf)}
+
+/* Indicador de status (online/offline) */
+.status-indicator{display:inline-block;width:10px;height:10px;border-radius:50%;margin-left:4px}
+.status-online{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+.status-offline{background:var(--danger);box-shadow:0 0 6px var(--danger)}
+
+/* Mensagens de status (Análise Temporal) */
+.status-msg{margin:0 24px 16px;padding:12px 16px;border-radius:var(--radius-sm);display:none;font-size:13px;line-height:1.5}
+.status-msg.show{display:block}
+.status-msg.info{background:var(--badge-info-bg);border:1px solid var(--m-current);color:var(--badge-info-text)}
+.status-msg.warn{background:var(--badge-warn-bg);border:1px solid var(--warn);color:var(--badge-warn-text)}
+.status-msg.err{background:var(--badge-err-bg);border:1px solid var(--danger);color:var(--badge-err-text)}
+
+/* Banner de integridade de dados */
+#dataIntegrityBanner{
+  margin:0 24px 16px;
+  padding:12px 16px;
+  border-radius:var(--radius-sm);
+  border:1px solid var(--warn);
+  background:var(--badge-warn-bg);
+  color:var(--badge-warn-text);
+  font-size:13px;
+  line-height:1.5;
+}
+
+/* ===== Modal ===== */
+.modal{display:none;position:fixed;z-index:1000;left:0;top:0;width:100%;height:100%;overflow:auto;background:rgba(0,0,0,.6)}
+.modal-content{background:var(--bg-1);border:1px solid var(--border);margin:5% auto;padding:24px;border-radius:12px;width:90%;max-width:500px;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+.modal-content h2{font-size:16px;margin-top:0}
+.close{color:var(--text-muted);float:right;font-size:24px;font-weight:bold;cursor:pointer;line-height:1}
+.close:hover{color:var(--text)}
+#configForm label,.form-group label{display:block;margin:12px 0 6px;font-weight:600;font-size:12px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px}
+#configForm input,#configForm select{width:100%}
+#configForm input[type="checkbox"]{width:auto;margin-right:8px}
+.btn-test,.btn-save{padding:10px 18px;font-size:13px;font-weight:700}
+.btn-test{background:var(--bg-2);color:var(--text)}
+.btn-save{background:var(--brand);color:#04201f;flex:1;border-color:var(--brand)}
+.btn-save:hover{background:var(--brand-light)}
+#testResult{border-radius:var(--radius-sm);padding:10px;font-size:13px}
+#testResult.success{background:var(--badge-ok-bg);color:var(--badge-ok-text);border:1px solid var(--ok)}
+#testResult.error{background:var(--badge-err-bg);color:var(--badge-err-text);border:1px solid var(--danger)}
+
+/* ===== Página de cadastro de dispositivos ===== */
+.setup-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;padding:20px 24px}
+.engine-card{
+  background:var(--bg-1);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  padding:20px;
+  cursor:pointer;
+  transition:border-color .15s ease,transform .12s ease;
+}
+.engine-card:hover{border-color:var(--brand);transform:translateY(-2px)}
+.engine-title{font-size:15px;font-weight:700;color:var(--text);margin-bottom:4px}
+.engine-protocol{font-family:var(--mono);color:var(--brand-light);font-size:11px;letter-spacing:.4px;margin-bottom:10px}
+.engine-description{color:var(--text-muted);font-size:13px;line-height:1.5}
+
+.form-container{background:var(--bg-1);border:1px solid var(--border);border-radius:var(--radius);padding:24px;margin:20px 24px;display:none}
+.form-container.active{display:block}
+.form-header{border-bottom:1px solid var(--border);padding-bottom:14px;margin-bottom:20px}
+.form-header h2{margin:0;font-size:16px;color:var(--text)}
+.form-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px}
+.form-group{margin-bottom:16px}
+.form-group small{display:block;color:var(--text-faint);margin-top:4px;font-size:11px}
+.btn-group{display:flex;gap:12px;margin-top:24px}
+.btn-group .btn{flex:1;padding:10px}
+
+.alert{padding:12px 16px;border-radius:var(--radius-sm);margin:16px 24px 0;display:none;font-size:13px}
+.alert.show{display:block}
+.alert-success{background:var(--badge-ok-bg);color:var(--badge-ok-text);border:1px solid var(--ok)}
+.alert-error{background:var(--badge-err-bg);color:var(--badge-err-text);border:1px solid var(--danger)}
+
+.devices-list{background:var(--bg-1);border:1px solid var(--border);border-radius:var(--radius);padding:20px;margin:20px 24px}
+.devices-list h2{color:var(--text);font-size:14px;margin:0 0 14px;text-transform:uppercase;letter-spacing:.5px}
+.device-item{background:var(--bg-2);padding:12px 16px;border-radius:var(--radius-sm);margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;border:1px solid var(--border-soft)}
+.device-name{font-weight:600;color:var(--text);font-size:14px}
+.device-type{color:var(--text-muted);font-size:12px;font-family:var(--mono);margin-top:2px}
+.device-status{padding:4px 12px;border-radius:999px;font-size:11px;font-weight:700;letter-spacing:.3px}
+.status-active{background:var(--badge-ok-bg);color:var(--badge-ok-text)}
+.status-inactive{background:var(--badge-err-bg);color:var(--badge-err-text)}
+.device-actions{display:flex;align-items:center;gap:10px}
+.btn-icon{background:var(--bg-3);border:1px solid var(--border);border-radius:var(--radius-sm);width:34px;height:34px;font-size:14px;cursor:pointer;color:var(--text)}
+.btn-icon:hover{border-color:var(--brand)}
+.btn-icon-danger:hover{border-color:var(--danger);background:var(--badge-err-bg)}
+
+.back-btn{background:transparent;color:var(--brand-light);padding:8px 16px;border:1px solid var(--border);border-radius:var(--radius-sm);cursor:pointer;font-size:13px;font-weight:600;margin-bottom:16px}
+.back-btn:hover{border-color:var(--brand-light)}
+
+optgroup{font-weight:700;color:var(--brand-light);background:var(--bg-1)}
+option{font-weight:400;background:var(--bg-1);color:var(--text)}
+
+@media (max-width:1600px){.grid{grid-template-columns:repeat(3,1fr)}}
+@media (max-width:1200px){.grid{grid-template-columns:repeat(2,1fr)}}
+@media (max-width:800px){.grid{grid-template-columns:1fr}.topbar{flex-direction:column;height:auto;padding:12px;gap:8px}}

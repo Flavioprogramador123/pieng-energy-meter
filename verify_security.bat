@@ -64,3 +64,4 @@ echo   3. Confirme que .env NAO aparece
 echo.
 pause
 
+

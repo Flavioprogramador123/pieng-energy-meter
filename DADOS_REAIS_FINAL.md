@@ -340,3 +340,4 @@ tuya_devices_*.json
 
 **#DadosReais #SixSigma #IoT #Python #FastAPI #Tuya #Energia**
 
+

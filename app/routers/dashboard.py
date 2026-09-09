@@ -14,7 +14,7 @@ def dashboard(request: Request, db: Session = Depends(get_db)):
     clients = crud.list_clients(db)
     return request.app.state.templates.TemplateResponse(
         "dashboard.html",
-        {"request": request, "devices": devices, "clients": clients},
+        {"request": request, "devices": devices, "clients": clients, "active_page": "dashboard"},
     )
 
 
@@ -23,7 +23,7 @@ def analytics(request: Request, db: Session = Depends(get_db)):
     devices = crud.list_devices(db)
     return request.app.state.templates.TemplateResponse(
         "analytics.html",
-        {"request": request, "devices": devices},
+        {"request": request, "devices": devices, "active_page": "analytics"},
     )
 
 
@@ -32,7 +32,7 @@ def device_setup(request: Request):
     """Interface visual para cadastro de dispositivos"""
     return request.app.state.templates.TemplateResponse(
         "device_setup.html",
-        {"request": request},
+        {"request": request, "active_page": "setup"},
     )
 
 

@@ -1,0 +1,18 @@
+# Postgres local para TESTE, isolado do stack pieng_postgres (que é outra
+# aplicação). O volume fica em ./data/postgres_data para ser fácil de
+# localizar quando o storage mudar de máquina (HD do escritório -> mini PC em
+# casa). Para mover de host, prefira `pg_dump`/`pg_restore` a copiar a pasta
+# do volume direto — evita problemas de versão/plataforma entre os hosts.
+services:
+  postgres:
+    image: postgres:16
+    container_name: energy_meter_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-energy_meter}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-energy_meter_dev_only}
+      POSTGRES_DB: ${POSTGRES_DB:-energy_meter}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - ./data/postgres_data:/var/lib/postgresql/data

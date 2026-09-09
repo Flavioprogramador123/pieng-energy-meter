@@ -279,3 +279,4 @@ git secrets --scan
 
 Se tiver dúvidas sobre segurança, SEMPRE pergunte antes de commitar!
 
+

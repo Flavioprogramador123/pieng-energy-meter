@@ -7,8 +7,14 @@ async function fetchJSON(url) {
 function el(id) { return document.getElementById(id); }
 
 let charts = {};
+let currentPeriod = '1d';
+
+function metricsUrl(deviceId, metric, limit = 100) {
+  return `/api/metrics?device_id=${deviceId}&metric=${metric}&limit=${limit}&period=${currentPeriod}`;
+}
 
 function createChart(canvasId, label, color) {
+  const C = getChartColors();
   return new Chart(el(canvasId), {
     type: 'line',
     data: {
@@ -17,23 +23,48 @@ function createChart(canvasId, label, color) {
         label: label,
         data: [],
         borderColor: color,
-        backgroundColor: color + '20',
+        backgroundColor: hexToRgba(color, 0.2),
         tension: 0.4,
         fill: true,
-        borderWidth: 2
+        borderWidth: 3,
+        pointRadius: 2,
+        pointHoverRadius: 5
       }]
     },
     options: {
       responsive: true,
       maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
       plugins: {
-        legend: { display: false }
+        legend: { display: false },
+        tooltip: tooltipConfig()
       },
       scales: {
-        y: { beginAtZero: true }
+        x: { ticks: { color: C.textMuted }, grid: { color: C.grid } },
+        y: { beginAtZero: true, ticks: { color: C.textMuted }, grid: { color: C.gridStrong } }
       }
     }
   });
+}
+
+function tooltipConfig() {
+  return {
+    mode: 'index',
+    intersect: false,
+    callbacks: {
+      label: (ctx) => {
+        const v = ctx.parsed.y;
+        return `${ctx.dataset.label}: ${v == null ? '—' : v.toLocaleString('pt-BR', { maximumFractionDigits: 3 })}`;
+      }
+    }
+  };
+}
+
+function destroyAllCharts() {
+  Object.keys(charts).forEach((key) => {
+    if (charts[key]) charts[key].destroy();
+  });
+  charts = {};
 }
 
 function updateChart(chart, labels, data) {
@@ -42,64 +73,81 @@ function updateChart(chart, labels, data) {
   chart.update('none');
 }
 
+function setIntegrityBanner(html, show) {
+  const banner = el('dataIntegrityBanner');
+  if (!banner) return;
+  banner.style.display = show ? 'block' : 'none';
+  banner.innerHTML = html || '';
+}
+
 async function loadData() {
   const deviceId = el('deviceSelect').value;
   if (!deviceId) return;
 
+  const C = getChartColors();
+
   try {
     // Detectar se é medidor trifásico (buscar métricas por fase)
-    const voltage_l1_check = await fetchJSON(`/api/metrics?device_id=${deviceId}&metric=voltage_l1&limit=1`);
+    const voltage_l1_check = await fetchJSON(metricsUrl(deviceId, 'voltage_l1', 1));
     const isThreePhase = voltage_l1_check.length > 0;
 
     let voltageData, currentData, powerData;
 
-    let energyData, alarms;
+    let energyData, alarms, switchData;
+    const chartLimit = currentPeriod === '1m' ? 5000 : (currentPeriod === '1w' ? 2500 : 500);
 
     if (isThreePhase) {
       // Buscar métricas trifásicas
-      const [v1, v2, v3, i1, i2, i3, p1, p2, p3, pTotal, eData, alarmsData] = await Promise.all([
-        fetchJSON(`/api/metrics?device_id=${deviceId}&metric=voltage_l1&limit=100`),
-        fetchJSON(`/api/metrics?device_id=${deviceId}&metric=voltage_l2&limit=100`),
-        fetchJSON(`/api/metrics?device_id=${deviceId}&metric=voltage_l3&limit=100`),
-        fetchJSON(`/api/metrics?device_id=${deviceId}&metric=current_l1&limit=100`),
-        fetchJSON(`/api/metrics?device_id=${deviceId}&metric=current_l2&limit=100`),
-        fetchJSON(`/api/metrics?device_id=${deviceId}&metric=current_l3&limit=100`),
-        fetchJSON(`/api/metrics?device_id=${deviceId}&metric=power_l1&limit=100`),
-        fetchJSON(`/api/metrics?device_id=${deviceId}&metric=power_l2&limit=100`),
-        fetchJSON(`/api/metrics?device_id=${deviceId}&metric=power_l3&limit=100`),
-        fetchJSON(`/api/metrics?device_id=${deviceId}&metric=power_total&limit=100`),
-        fetchJSON(`/api/metrics?device_id=${deviceId}&metric=energy_wh&limit=100`),
-        fetchJSON(`/api/alarms/events?device_id=${deviceId}&limit=20`)
+      const [v1, v2, v3, i1, i2, i3, p1, p2, p3, pTotal, eData, alarmsData, swData] = await Promise.all([
+        fetchJSON(metricsUrl(deviceId, 'voltage_l1', chartLimit)),
+        fetchJSON(metricsUrl(deviceId, 'voltage_l2', chartLimit)),
+        fetchJSON(metricsUrl(deviceId, 'voltage_l3', chartLimit)),
+        fetchJSON(metricsUrl(deviceId, 'current_l1', chartLimit)),
+        fetchJSON(metricsUrl(deviceId, 'current_l2', chartLimit)),
+        fetchJSON(metricsUrl(deviceId, 'current_l3', chartLimit)),
+        fetchJSON(metricsUrl(deviceId, 'power_l1', chartLimit)),
+        fetchJSON(metricsUrl(deviceId, 'power_l2', chartLimit)),
+        fetchJSON(metricsUrl(deviceId, 'power_l3', chartLimit)),
+        fetchJSON(metricsUrl(deviceId, 'power_total', chartLimit)),
+        fetchJSON(metricsUrl(deviceId, 'energy_wh', chartLimit)),
+        fetchJSON(`/api/alarms/events?device_id=${deviceId}&limit=20`),
+        fetchJSON(metricsUrl(deviceId, 'switch_status', chartLimit))
       ]);
 
       // Armazenar dados por fase para uso posterior
-      window.phaseData = { v1, v2, v3, i1, i2, i3, p1, p2, p3 };
+      window.phaseData = { v1, v2, v3, i1, i2, i3, p1, p2, p3, pTotal };
       voltageData = v1; // usar L1 como referência para status
       currentData = i1;
       powerData = pTotal.length > 0 ? pTotal : p1;
       energyData = eData;
       alarms = alarmsData;
+      switchData = swData;
 
     } else {
-      // Buscar métricas monofásicas (formato antigo)
-      const [vData, iData, pData, eData, alarmsData] = await Promise.all([
-        fetchJSON(`/api/metrics?device_id=${deviceId}&metric=voltage&limit=100`),
-        fetchJSON(`/api/metrics?device_id=${deviceId}&metric=current&limit=100`),
-        fetchJSON(`/api/metrics?device_id=${deviceId}&metric=power&limit=100`),
-        fetchJSON(`/api/metrics?device_id=${deviceId}&metric=energy_wh&limit=100`),
-        fetchJSON(`/api/alarms/events?device_id=${deviceId}&limit=20`)
+      // Buscar métricas monofásicas (formato antigo) + switch Tuya
+      const [vData, iData, pData, eData, alarmsData, swData] = await Promise.all([
+        fetchJSON(metricsUrl(deviceId, 'voltage', chartLimit)),
+        fetchJSON(metricsUrl(deviceId, 'current', chartLimit)),
+        fetchJSON(metricsUrl(deviceId, 'power', chartLimit)),
+        fetchJSON(metricsUrl(deviceId, 'energy_wh', chartLimit)),
+        fetchJSON(`/api/alarms/events?device_id=${deviceId}&limit=20`),
+        fetchJSON(metricsUrl(deviceId, 'switch_status', chartLimit))
       ]);
       voltageData = vData;
       currentData = iData;
       powerData = pData;
       energyData = eData;
       alarms = alarmsData;
+      switchData = swData;
       window.phaseData = null;
     }
 
-    // Verificar status do dispositivo (dados nos últimos 60 segundos)
-    const lastReading = voltageData[0] || currentData[0] || powerData[0];
-    const isOnline = lastReading && (Date.now() - new Date(lastReading.timestamp)) < 60000;
+    const hasEnergyMetrics = voltageData.length > 0 || currentData.length > 0 || powerData.length > 0 || energyData.length > 0;
+    const hasSwitch = switchData.length > 0;
+
+    // Verificar status do dispositivo (dados nos últimos 120 segundos)
+    const lastReading = voltageData[0] || currentData[0] || powerData[0] || switchData[0];
+    const isOnline = lastReading && (Date.now() - new Date(lastReading.timestamp)) < 120000;
 
     const statusEl = el('deviceStatus');
     if (isOnline) {
@@ -112,11 +160,38 @@ async function loadData() {
         'Sem dados disponíveis';
     }
 
-    // Valores atuais
-    const v = voltageData[0]?.value || 0;
-    const i = currentData[0]?.value || 0;
-    const p = powerData[0]?.value || 0;
-    const e_wh = energyData[0]?.value || 0;
+    if (el('liveSwitch')) {
+      if (hasSwitch) {
+        const on = Number(switchData[0].value) === 1;
+        const age = Math.round((Date.now() - new Date(switchData[0].timestamp)) / 1000);
+        el('liveSwitch').textContent = `${on ? 'LIGADO' : 'DESLIGADO'} (${age}s)`;
+      } else {
+        el('liveSwitch').textContent = '--';
+      }
+    }
+
+    if (!hasEnergyMetrics && hasSwitch) {
+      setIntegrityBanner(
+        `<strong>Dados REAIS da Tuya:</strong> este aparelho só envia status de switch/relé (` +
+        `${switchData.length} leituras). Não envia tensão/corrente/potência/energia pela Cloud API. ` +
+        `Para medir consumo da residência, use um medidor com energia (plug Tuya com kWh, PZEM ou SDM630). ` +
+        `Última leitura: ${new Date(switchData[0].timestamp).toLocaleString()}.`,
+        true
+      );
+    } else if (!hasEnergyMetrics && !hasSwitch) {
+      setIntegrityBanner(
+        `<strong>Sem medições:</strong> o sistema não inventa dados. Cadastre/ative um medidor e aguarde o poller (30s).`,
+        true
+      );
+    } else {
+      setIntegrityBanner('', false);
+    }
+
+    // Valores atuais (só preenche se houver leitura real; senão "--")
+    const v = voltageData[0]?.value;
+    const i = currentData[0]?.value;
+    const p = powerData[0]?.value;
+    const e_wh = energyData[0]?.value;
 
     // Calcular energia integrada baseada em potência (mais confiável)
     // Energia = integral de potência ao longo do tempo
@@ -130,9 +205,14 @@ async function loadData() {
       }
     }
 
-    // Usar energia integrada se disponível, senão usar leitura do PZEM (filtrar valores absurdos)
+    const vNum = Number(v || 0);
+    const iNum = Number(i || 0);
+    const pNum = Number(p || 0);
+    const eWhNum = Number(e_wh || 0);
+
+    // Usar energia integrada se disponível, senão usar leitura do medidor (filtrar valores absurdos)
     const e_kwh = (energy_integrated_wh > 0) ? (energy_integrated_wh / 1000.0) :
-                  (e_wh > 0 && e_wh < 100000) ? (e_wh / 1000.0) : 0;
+                  (eWhNum > 0 && eWhNum < 100000) ? (eWhNum / 1000.0) : null;
 
     // Calcular potência aparente (trifásico vs monofásico)
     let apparent_power = 0;
@@ -145,77 +225,99 @@ async function loadData() {
       const i2 = window.phaseData.i2[0]?.value || 0;
       const i3 = window.phaseData.i3[0]?.value || 0;
       apparent_power = (v1 * i1) + (v2 * i2) + (v3 * i3);
-    } else {
+    } else if (hasEnergyMetrics) {
       // Monofásico: S = V * I
-      apparent_power = v * i;
+      apparent_power = vNum * iNum;
     }
 
-    const power_factor = apparent_power > 0 ? Math.abs(p) / apparent_power : 0;
-    const cost = e_kwh * 0.65;
+    const power_factor = apparent_power > 0 ? Math.abs(pNum) / apparent_power : null;
+    const cost = e_kwh != null ? e_kwh * 0.65 : null;
 
     // Médias
-    const avgV = voltageData.reduce((sum, d) => sum + d.value, 0) / voltageData.length || 0;
-    const avgI = currentData.reduce((sum, d) => sum + d.value, 0) / currentData.length || 0;
-    const avgP = powerData.reduce((sum, d) => sum + d.value, 0) / powerData.length || 0;
+    const avgV = voltageData.length ? voltageData.reduce((sum, d) => sum + d.value, 0) / voltageData.length : null;
+    const avgI = currentData.length ? currentData.reduce((sum, d) => sum + d.value, 0) / currentData.length : null;
+    const avgP = powerData.length ? powerData.reduce((sum, d) => sum + d.value, 0) / powerData.length : null;
 
     // Atualizar valores em tempo real
-    if (isThreePhase && window.phaseData) {
+    if (!hasEnergyMetrics) {
+      el('liveVoltage').textContent = 'N/A';
+      el('liveCurrent').textContent = 'N/A';
+      el('livePower').textContent = 'N/A';
+      el('liveEnergy').textContent = 'N/A';
+      el('livePF').textContent = 'N/A';
+      el('liveCost').textContent = 'N/A';
+      el('averagesBox').innerHTML = `
+        <strong>Sem métricas de energia neste device.</strong><br>
+        Métrica real disponível: <code>switch_status</code> (${switchData.length} leituras).
+      `;
+    } else if (isThreePhase && window.phaseData) {
       // Helper para formatar com indicador de inatividade
       const formatPhaseValue = (val, unit, decimals = 1) => {
         const value = val || 0;
         const isInactive = Math.abs(value) < 0.01;
-        const color = isInactive ? '#999' : 'inherit';
+        const color = isInactive ? 'var(--text-faint)' : 'inherit';
         const label = isInactive ? '(inativo)' : '';
         return `<span style="color:${color}">${value.toFixed(decimals)}${unit} ${label}</span>`;
       };
 
       // Exibir valores por fase para trifásicos
       el('liveVoltage').innerHTML = `
-        L1: ${formatPhaseValue(window.phaseData.v1[0]?.value, 'V', 1)}<br>
-        L2: ${formatPhaseValue(window.phaseData.v2[0]?.value, 'V', 1)}<br>
-        L3: ${formatPhaseValue(window.phaseData.v3[0]?.value, 'V', 1)}
+        <span style="color:var(--phase-l1)">L1:</span> ${formatPhaseValue(window.phaseData.v1[0]?.value, 'V', 1)}<br>
+        <span style="color:var(--phase-l2)">L2:</span> ${formatPhaseValue(window.phaseData.v2[0]?.value, 'V', 1)}<br>
+        <span style="color:var(--phase-l3)">L3:</span> ${formatPhaseValue(window.phaseData.v3[0]?.value, 'V', 1)}
       `;
 
       const i1 = window.phaseData.i1[0]?.value || 0;
       const i2 = window.phaseData.i2[0]?.value || 0;
       const i3 = window.phaseData.i3[0]?.value || 0;
       el('liveCurrent').innerHTML = `
-        L1: ${formatPhaseValue(i1, 'A', 2)}<br>
-        L2: ${formatPhaseValue(i2, 'A', 2)}<br>
-        L3: ${formatPhaseValue(i3, 'A', 2)}
+        <span style="color:var(--phase-l1)">L1:</span> ${formatPhaseValue(i1, 'A', 2)}<br>
+        <span style="color:var(--phase-l2)">L2:</span> ${formatPhaseValue(i2, 'A', 2)}<br>
+        <span style="color:var(--phase-l3)">L3:</span> ${formatPhaseValue(i3, 'A', 2)}
       `;
 
       const p1 = window.phaseData.p1[0]?.value || 0;
       const p2 = window.phaseData.p2[0]?.value || 0;
       const p3 = window.phaseData.p3[0]?.value || 0;
       el('livePower').innerHTML = `
-        L1: ${formatPhaseValue(p1, 'W', 0)}<br>
-        L2: ${formatPhaseValue(p2, 'W', 0)}<br>
-        L3: ${formatPhaseValue(p3, 'W', 0)}<br>
-        <strong>Total: ${p.toFixed(0)}W</strong>
+        <span style="color:var(--phase-l1)">L1:</span> ${formatPhaseValue(p1, 'W', 0)}<br>
+        <span style="color:var(--phase-l2)">L2:</span> ${formatPhaseValue(p2, 'W', 0)}<br>
+        <span style="color:var(--phase-l3)">L3:</span> ${formatPhaseValue(p3, 'W', 0)}<br>
+        <strong>Total: ${pNum.toFixed(0)}W</strong>
+      `;
+      el('liveEnergy').textContent = (e_kwh != null ? e_kwh.toFixed(3) : '0.000') + ' kWh';
+      el('livePF').textContent = power_factor != null ? power_factor.toFixed(3) : '--';
+      el('liveCost').textContent = cost != null ? ('R$ ' + cost.toFixed(2)) : 'R$ --';
+      el('averagesBox').innerHTML = `
+        <strong>Tensão média:</strong> ${(avgV ?? 0).toFixed(2)} V<br>
+        <strong>Corrente média:</strong> ${(avgI ?? 0).toFixed(3)} A<br>
+        <strong>Potência média:</strong> ${(avgP ?? 0).toFixed(2)} W<br>
+        <strong>Pot. Aparente:</strong> ${apparent_power.toFixed(2)} VA
       `;
     } else {
       // Exibir valores únicos para monofásicos
-      el('liveVoltage').textContent = v.toFixed(1) + ' V';
-      el('liveCurrent').textContent = i.toFixed(3) + ' A';
-      el('livePower').textContent = p.toFixed(1) + ' W';
+      el('liveVoltage').textContent = v != null ? (vNum.toFixed(1) + ' V') : 'N/A';
+      el('liveCurrent').textContent = i != null ? (iNum.toFixed(3) + ' A') : 'N/A';
+      el('livePower').textContent = p != null ? (pNum.toFixed(1) + ' W') : 'N/A';
+      el('liveEnergy').textContent = e_kwh != null ? (e_kwh.toFixed(3) + ' kWh') : 'N/A';
+      el('livePF').textContent = power_factor != null ? power_factor.toFixed(3) : 'N/A';
+      el('liveCost').textContent = cost != null ? ('R$ ' + cost.toFixed(2)) : 'N/A';
+      el('averagesBox').innerHTML = `
+        <strong>Tensão média:</strong> ${(avgV ?? 0).toFixed(2)} V<br>
+        <strong>Corrente média:</strong> ${(avgI ?? 0).toFixed(3)} A<br>
+        <strong>Potência média:</strong> ${(avgP ?? 0).toFixed(2)} W<br>
+        <strong>Pot. Aparente:</strong> ${apparent_power.toFixed(2)} VA
+      `;
     }
 
-    el('liveEnergy').textContent = e_kwh.toFixed(3) + ' kWh';
-    el('livePF').textContent = power_factor.toFixed(3);
-    el('liveCost').textContent = 'R$ ' + cost.toFixed(2);
-
-    // Médias
-    el('averagesBox').innerHTML = `
-      <strong>Tensão média:</strong> ${avgV.toFixed(2)} V<br>
-      <strong>Corrente média:</strong> ${avgI.toFixed(3)} A<br>
-      <strong>Potência média:</strong> ${avgP.toFixed(2)} W<br>
-      <strong>Pot. Aparente:</strong> ${apparent_power.toFixed(2)} VA
-    `;
-
     // Criar ou atualizar gráficos individuais
-    const eSeries = energyData.reverse();
+    // IMPORTANTE: não mutar arrays originais com .reverse()
+    const eSeries = energyData.slice().reverse();
     const eLabels = eSeries.map(x => new Date(x.timestamp).toLocaleTimeString());
+    let vSeries = [];
+    let iSeries = [];
+    let pSeries = [];
+    const swSeries = switchData.slice().reverse();
 
     if (isThreePhase && window.phaseData) {
       // Gráficos trifásicos com as 3 fases
@@ -229,6 +331,12 @@ async function loadData() {
       const p2_series = window.phaseData.p2.slice().reverse();
       const p3_series = window.phaseData.p3.slice().reverse();
 
+      vSeries = v1_series;
+      iSeries = i1_series;
+      pSeries = (window.phaseData.pTotal && window.phaseData.pTotal.length)
+        ? window.phaseData.pTotal.slice().reverse()
+        : p1_series;
+
       const vLabels = v1_series.map(x => new Date(x.timestamp).toLocaleTimeString());
       const iLabels = i1_series.map(x => new Date(x.timestamp).toLocaleTimeString());
       const pLabels = p1_series.map(x => new Date(x.timestamp).toLocaleTimeString());
@@ -241,12 +349,20 @@ async function loadData() {
           data: {
             labels: vLabels,
             datasets: [
-              { label: 'L1', data: v1_series.map(x => x.value), borderColor: '#e63946', tension: 0.4, borderWidth: 2 },
-              { label: 'L2', data: v2_series.map(x => x.value), borderColor: '#f77f00', tension: 0.4, borderWidth: 2 },
-              { label: 'L3', data: v3_series.map(x => x.value), borderColor: '#06d6a0', tension: 0.4, borderWidth: 2 }
+              { label: 'L1', data: v1_series.map(x => x.value), borderColor: C.phaseL1, backgroundColor: hexToRgba(C.phaseL1, 0.15), tension: 0.4, borderWidth: 3 },
+              { label: 'L2', data: v2_series.map(x => x.value), borderColor: C.phaseL2, backgroundColor: hexToRgba(C.phaseL2, 0.12), tension: 0.4, borderWidth: 3 },
+              { label: 'L3', data: v3_series.map(x => x.value), borderColor: C.phaseL3, backgroundColor: hexToRgba(C.phaseL3, 0.12), tension: 0.4, borderWidth: 3 }
             ]
           },
-          options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: false } } }
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { labels: { color: C.text } }, tooltip: tooltipConfig() },
+            scales: {
+              x: { ticks: { color: C.textMuted }, grid: { color: C.grid } },
+              y: { beginAtZero: false, ticks: { color: C.textMuted }, grid: { color: C.gridStrong } }
+            }
+          }
         });
       } else {
         charts.voltage.data.labels = vLabels;
@@ -264,12 +380,20 @@ async function loadData() {
           data: {
             labels: iLabels,
             datasets: [
-              { label: 'L1', data: i1_series.map(x => x.value), borderColor: '#457b9d', tension: 0.4, borderWidth: 2 },
-              { label: 'L2', data: i2_series.map(x => x.value), borderColor: '#1d3557', tension: 0.4, borderWidth: 2 },
-              { label: 'L3', data: i3_series.map(x => x.value), borderColor: '#a8dadc', tension: 0.4, borderWidth: 2 }
+              { label: 'L1', data: i1_series.map(x => x.value), borderColor: C.phaseL1, backgroundColor: hexToRgba(C.phaseL1, 0.15), tension: 0.4, borderWidth: 3 },
+              { label: 'L2', data: i2_series.map(x => x.value), borderColor: C.phaseL2, backgroundColor: hexToRgba(C.phaseL2, 0.12), tension: 0.4, borderWidth: 3 },
+              { label: 'L3', data: i3_series.map(x => x.value), borderColor: C.phaseL3, backgroundColor: hexToRgba(C.phaseL3, 0.12), tension: 0.4, borderWidth: 3 }
             ]
           },
-          options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: true } } }
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { labels: { color: C.text } }, tooltip: tooltipConfig() },
+            scales: {
+              x: { ticks: { color: C.textMuted }, grid: { color: C.grid } },
+              y: { beginAtZero: true, ticks: { color: C.textMuted }, grid: { color: C.gridStrong } }
+            }
+          }
         });
       } else {
         charts.current.data.labels = iLabels;
@@ -287,12 +411,20 @@ async function loadData() {
           data: {
             labels: pLabels,
             datasets: [
-              { label: 'L1', data: p1_series.map(x => x.value), borderColor: '#2a9d8f', tension: 0.4, borderWidth: 2 },
-              { label: 'L2', data: p2_series.map(x => x.value), borderColor: '#264653', tension: 0.4, borderWidth: 2 },
-              { label: 'L3', data: p3_series.map(x => x.value), borderColor: '#80ed99', tension: 0.4, borderWidth: 2 }
+              { label: 'L1', data: p1_series.map(x => x.value), borderColor: C.phaseL1, backgroundColor: hexToRgba(C.phaseL1, 0.15), tension: 0.4, borderWidth: 3 },
+              { label: 'L2', data: p2_series.map(x => x.value), borderColor: C.phaseL2, backgroundColor: hexToRgba(C.phaseL2, 0.12), tension: 0.4, borderWidth: 3 },
+              { label: 'L3', data: p3_series.map(x => x.value), borderColor: C.phaseL3, backgroundColor: hexToRgba(C.phaseL3, 0.12), tension: 0.4, borderWidth: 3 }
             ]
           },
-          options: { responsive: true, maintainAspectRatio: false, scales: { y: { beginAtZero: false } } }
+          options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { labels: { color: C.text } }, tooltip: tooltipConfig() },
+            scales: {
+              x: { ticks: { color: C.textMuted }, grid: { color: C.grid } },
+              y: { beginAtZero: false, ticks: { color: C.textMuted }, grid: { color: C.gridStrong } }
+            }
+          }
         });
       } else {
         charts.power.data.labels = pLabels;
@@ -304,18 +436,18 @@ async function loadData() {
 
     } else {
       // Gráficos monofásicos (formato original)
-      const vSeries = voltageData.reverse();
-      const iSeries = currentData.reverse();
-      const pSeries = powerData.reverse();
+      vSeries = voltageData.slice().reverse();
+      iSeries = currentData.slice().reverse();
+      pSeries = powerData.slice().reverse();
 
       const vLabels = vSeries.map(x => new Date(x.timestamp).toLocaleTimeString());
       const iLabels = iSeries.map(x => new Date(x.timestamp).toLocaleTimeString());
       const pLabels = pSeries.map(x => new Date(x.timestamp).toLocaleTimeString());
 
       if (!charts.voltage) {
-        charts.voltage = createChart('chartVoltage', 'Tensão (V)', '#e63946');
-        charts.current = createChart('chartCurrent', 'Corrente (A)', '#457b9d');
-        charts.power = createChart('chartPower', 'Potência (W)', '#2a9d8f');
+        charts.voltage = createChart('chartVoltage', 'Tensão (V)', C.voltage);
+        charts.current = createChart('chartCurrent', 'Corrente (A)', C.current);
+        charts.power = createChart('chartPower', 'Potência (W)', C.power);
       }
 
       updateChart(charts.voltage, vLabels, vSeries.map(x => x.value));
@@ -325,52 +457,125 @@ async function loadData() {
 
     // Gráfico de Energia (igual para ambos)
     if (!charts.energy) {
-      charts.energy = createChart('chartEnergy', 'Energia (Wh)', '#f77f00');
+      charts.energy = createChart('chartEnergy', 'Energia (Wh)', C.energy);
     }
     updateChart(charts.energy, eLabels, eSeries.map(x => x.value));
 
-    // Gráfico multi-métrica
-    const multiLabels = vSeries.slice(0, 50).map(x => new Date(x.timestamp).toLocaleTimeString());
-    if (!charts.multi) {
-      charts.multi = new Chart(el('chartMulti'), {
+    // Gráfico multi-métrica — monta datasets com o que existir de fato
+    const multiSource = (vSeries.length && vSeries)
+      || (pSeries.length && pSeries)
+      || (iSeries.length && iSeries)
+      || (swSeries.length && swSeries)
+      || (eSeries.length && eSeries)
+      || [];
+    const multiLabels = multiSource.slice(0, 80).map(x => new Date(x.timestamp).toLocaleTimeString());
+    const multiDatasets = [];
+    if (vSeries.length) {
+      multiDatasets.push({
+        label: 'Tensão (V)',
+        data: vSeries.slice(0, 80).map(x => x.value),
+        borderColor: C.voltage,
+        backgroundColor: hexToRgba(C.voltage, 0.12),
+        yAxisID: 'yV',
+        tension: 0.4,
+        borderWidth: 3
+      });
+    }
+    if (iSeries.length) {
+      multiDatasets.push({
+        label: 'Corrente (A)',
+        data: iSeries.slice(0, 80).map(x => x.value),
+        borderColor: C.current,
+        backgroundColor: hexToRgba(C.current, 0.12),
+        yAxisID: 'yI',
+        tension: 0.4,
+        borderWidth: 3
+      });
+    }
+    if (pSeries.length) {
+      multiDatasets.push({
+        label: 'Potência (W)',
+        data: pSeries.slice(0, 80).map(x => x.value),
+        borderColor: C.power,
+        backgroundColor: hexToRgba(C.power, 0.12),
+        yAxisID: 'yP',
+        tension: 0.4,
+        borderWidth: 3
+      });
+    }
+    if (swSeries.length) {
+      multiDatasets.push({
+        label: 'Switch (0/1)',
+        data: swSeries.slice(0, 80).map(x => x.value),
+        borderColor: C.switch,
+        backgroundColor: hexToRgba(C.switch, 0.15),
+        yAxisID: 'ySw',
+        tension: 0,
+        stepped: true,
+        borderWidth: 3,
+        pointRadius: 3
+      });
+    }
+    if (!multiDatasets.length && eSeries.length) {
+      multiDatasets.push({
+        label: 'Energia (Wh)',
+        data: eSeries.slice(0, 80).map(x => x.value),
+        borderColor: C.energy,
+        backgroundColor: hexToRgba(C.energy, 0.15),
+        yAxisID: 'yP',
+        tension: 0.4,
+        borderWidth: 3
+      });
+    }
+
+    const multiScales = {
+      x: { ticks: { color: C.textMuted }, grid: { color: C.grid } },
+      yV: { type: 'linear', position: 'left', display: vSeries.length > 0, title: { display: true, text: 'V', color: C.voltage }, ticks: { color: C.voltage }, grid: { color: C.grid } },
+      yI: { type: 'linear', position: 'right', display: iSeries.length > 0, title: { display: true, text: 'A', color: C.current }, ticks: { color: C.current }, grid: { drawOnChartArea: false } },
+      yP: { type: 'linear', position: 'right', display: pSeries.length > 0 || eSeries.length > 0, title: { display: true, text: 'W', color: C.power }, ticks: { color: C.power }, grid: { drawOnChartArea: false } },
+      ySw: { type: 'linear', position: 'right', display: swSeries.length > 0, min: 0, max: 1.2, title: { display: true, text: 'SW', color: C.switch }, ticks: { color: C.switch, stepSize: 1 }, grid: { drawOnChartArea: false } }
+    };
+
+    if (charts.multi) {
+      try { charts.multi.destroy(); } catch (_) {}
+      charts.multi = null;
+    }
+
+    const multiCanvas = el('chartMulti');
+    if (multiCanvas && multiDatasets.length) {
+      charts.multi = new Chart(multiCanvas, {
         type: 'line',
-        data: {
-          labels: multiLabels,
-          datasets: [
-            { label: 'Tensão (V)', data: vSeries.slice(0, 50).map(x => x.value), borderColor: '#e63946', yAxisID: 'yV', tension: 0.4 },
-            { label: 'Corrente (A)', data: iSeries.slice(0, 50).map(x => x.value), borderColor: '#457b9d', yAxisID: 'yI', tension: 0.4 },
-            { label: 'Potência (W)', data: pSeries.slice(0, 50).map(x => x.value), borderColor: '#2a9d8f', yAxisID: 'yP', tension: 0.4 }
-          ]
-        },
+        data: { labels: multiLabels, datasets: multiDatasets },
         options: {
           responsive: true,
           maintainAspectRatio: false,
-          scales: {
-            yV: { type: 'linear', position: 'left', title: { display: true, text: 'V' } },
-            yI: { type: 'linear', position: 'right', title: { display: true, text: 'A' } },
-            yP: { type: 'linear', position: 'right', title: { display: true, text: 'W' }, grid: { drawOnChartArea: false } }
-          }
+          interaction: { mode: 'index', intersect: false },
+          plugins: {
+            legend: { display: true, labels: { color: C.text } },
+            title: { display: false },
+            tooltip: tooltipConfig()
+          },
+          scales: multiScales
         }
       });
-    } else {
-      charts.multi.data.labels = multiLabels;
-      charts.multi.data.datasets[0].data = vSeries.slice(0, 50).map(x => x.value);
-      charts.multi.data.datasets[1].data = iSeries.slice(0, 50).map(x => x.value);
-      charts.multi.data.datasets[2].data = pSeries.slice(0, 50).map(x => x.value);
-      charts.multi.update('none');
+    } else if (multiCanvas) {
+      const ctx = multiCanvas.getContext('2d');
+      if (ctx) {
+        ctx.clearRect(0, 0, multiCanvas.width, multiCanvas.height);
+      }
     }
 
     // Alarmes
     const ul = el('alarmsList');
     ul.innerHTML = '';
     if (alarms.length === 0) {
-      ul.innerHTML = '<li style="color:#888;padding:8px">✓ Nenhum alarme registrado</li>';
+      ul.innerHTML = '<li style="color:var(--text-faint);padding:8px">Nenhum alarme registrado</li>';
     } else {
       alarms.forEach(a => {
         const li = document.createElement('li');
         li.style.padding = '6px 0';
-        li.style.borderBottom = '1px solid #eee';
-        li.innerHTML = `<span style="color:#e63946">⚠</span> ${new Date(a.timestamp).toLocaleString()} - <strong>${a.metric}</strong> = ${a.value}`;
+        li.style.borderBottom = '1px solid var(--border-soft)';
+        li.innerHTML = `<span style="color:var(--danger)">&#9888;</span> ${new Date(a.timestamp).toLocaleString()} - <strong>${a.metric}</strong> = ${a.value}`;
         ul.appendChild(li);
       });
     }
@@ -526,7 +731,7 @@ async function loadAlarmRules() {
     const container = el('alarmRulesList');
 
     if (rules.length === 0) {
-      container.innerHTML = '<em style="color:#888">Nenhuma regra configurada</em>';
+      container.innerHTML = '<em style="color:var(--text-faint)">Nenhuma regra configurada</em>';
       return;
     }
 
@@ -569,6 +774,22 @@ window.addEventListener('DOMContentLoaded', () => {
 
   el('addAlarmBtn').addEventListener('click', openAlarmModal);
   el('alarmForm').addEventListener('submit', createAlarmRule);
+
+  document.querySelectorAll('.period-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.period-btn').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentPeriod = btn.dataset.period || '1d';
+      destroyAllCharts();
+      loadData();
+    });
+  });
+
+  // Recriar gráficos com as cores certas ao trocar de tema
+  window.addEventListener('theme-changed', () => {
+    destroyAllCharts();
+    loadData();
+  });
 
   window.onclick = (e) => {
     if (e.target === el('configModal')) closeConfigModal();

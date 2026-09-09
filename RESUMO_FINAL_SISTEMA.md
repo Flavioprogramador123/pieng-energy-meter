@@ -356,3 +356,4 @@ type data\audit.log
 **Desenvolvido com ❤️ para PIENG Energy Meter**  
 **Data: 18/10/2025**
 
+

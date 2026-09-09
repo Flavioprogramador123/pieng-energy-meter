@@ -223,3 +223,4 @@ http://localhost:8000/api/dashboard
 
 **Próxima ação**: Ligar medidores WiFi Tuya fisicamente
 
+

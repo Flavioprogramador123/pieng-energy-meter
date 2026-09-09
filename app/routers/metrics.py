@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
+from sqlalchemy import func
 from ..core.db import get_db
 from .. import crud, schemas, models
 import pandas as pd
@@ -11,8 +12,30 @@ router = APIRouter(prefix="/metrics", tags=["metrics"])
 
 
 @router.get("")
-def list_metrics(device_id: int, metric: str | None = Query(default=None), limit: int = 500, db: Session = Depends(get_db)):
-    rows = crud.list_measurements(db, device_id=device_id, metric=metric, limit=limit)
+def list_metrics(
+    device_id: int,
+    metric: str | None = Query(default=None),
+    limit: int = 500,
+    period: str | None = Query(default=None),  # 1d, 1w, 1m
+    db: Session = Depends(get_db),
+):
+    since = None
+    if period:
+        period_map = {
+            "1d": timedelta(days=1),
+            "1w": timedelta(weeks=1),
+            "1m": timedelta(days=30),
+            "1h": timedelta(hours=1),
+            "6h": timedelta(hours=6),
+        }
+        delta = period_map.get(period)
+        if delta:
+            since = datetime.utcnow() - delta
+            # Para períodos longos, permitir mais pontos
+            if period in ("1w", "1m") and limit < 5000:
+                limit = 5000
+
+    rows = crud.list_measurements(db, device_id=device_id, metric=metric, limit=limit, since=since)
     # Retornar como dict diretamente para evitar problemas de serialização JSON
     return [
         {
@@ -25,6 +48,70 @@ def list_metrics(device_id: int, metric: str | None = Query(default=None), limit
         }
         for r in rows
     ]
+
+
+@router.get("/available")
+def available_metrics(device_id: int, period: str | None = Query(default="1w"), db: Session = Depends(get_db)):
+    """Lista métricas com dados reais para o device (opcionalmente no período)."""
+    since = None
+    if period:
+        period_map = {
+            "1d": timedelta(days=1),
+            "1w": timedelta(weeks=1),
+            "1m": timedelta(days=30),
+            "1h": timedelta(hours=1),
+            "6h": timedelta(hours=6),
+        }
+        delta = period_map.get(period)
+        if delta:
+            since = datetime.utcnow() - delta
+
+    q = db.query(
+        models.Measurement.metric,
+        func.count(models.Measurement.id),
+        func.max(models.Measurement.timestamp),
+    ).filter(models.Measurement.device_id == device_id)
+
+    if since is not None:
+        q = q.filter(models.Measurement.timestamp >= since)
+
+    rows = q.group_by(models.Measurement.metric).order_by(models.Measurement.metric.asc()).all()
+    return [
+        {
+            "metric": metric,
+            "count": int(count),
+            "last_timestamp": last_ts.isoformat() if last_ts else None,
+        }
+        for metric, count, last_ts in rows
+    ]
+
+
+@router.get("/available")
+def metrics_available(
+    device_id: int,
+    period: str = Query(default="1d"),
+    db: Session = Depends(get_db)
+):
+    """Lista as métricas com dados REAIS para o dispositivo no período (para popular o seletor)."""
+    period_map = {
+        "1h": timedelta(hours=1),
+        "6h": timedelta(hours=6),
+        "1d": timedelta(days=1),
+        "1w": timedelta(weeks=1),
+        "1m": timedelta(days=30),
+        "1y": timedelta(days=365)
+    }
+    start = datetime.utcnow() - period_map.get(period, timedelta(days=1))
+
+    rows = (
+        db.query(models.Measurement.metric, func.count(models.Measurement.id))
+        .filter(models.Measurement.device_id == device_id, models.Measurement.timestamp >= start)
+        .group_by(models.Measurement.metric)
+        .order_by(func.count(models.Measurement.id).desc())
+        .all()
+    )
+
+    return [{"metric": metric, "count": count} for metric, count in rows]
 
 
 @router.get("/timerange")
@@ -197,8 +284,72 @@ def metrics_summary(device_id: int, metric: str, limit: int = 1000, db: Session 
     rows = crud.list_measurements(db, device_id=device_id, metric=metric, limit=limit)
     s = pd.Series([r.value for r in rows][::-1])  # ordem cronológica
     summary = compute_summary(s)
-    six = six_sigma_params(s)
+    six = six_sigma_params(s, metric=metric)
     return {"summary": summary.__dict__, "six_sigma": six}
+
+
+@router.get("/period_summary")
+def metrics_period_summary(
+    device_id: int,
+    metric: str,
+    period: str = Query(default="1d"),
+    db: Session = Depends(get_db)
+):
+    """
+    Estatísticas do período selecionado (dia/semana/mês) comparadas com o
+    período anterior equivalente (mesma duração, imediatamente antes).
+    Também retorna Cpk (real, se a métrica tiver limite de especificação
+    conhecido - ver SPEC_LIMITS - ou auto-referenciado caso contrário).
+    """
+    period_map = {
+        "1h": timedelta(hours=1),
+        "6h": timedelta(hours=6),
+        "1d": timedelta(days=1),
+        "1w": timedelta(weeks=1),
+        "1m": timedelta(days=30),
+        "1y": timedelta(days=365)
+    }
+    duration = period_map.get(period, timedelta(days=1))
+    now = datetime.utcnow()
+
+    def window_stats(start: datetime, end: datetime):
+        rows = db.query(models.Measurement.value).filter(
+            models.Measurement.device_id == device_id,
+            models.Measurement.metric == metric,
+            models.Measurement.timestamp >= start,
+            models.Measurement.timestamp < end,
+        ).all()
+        values = pd.Series([r[0] for r in rows])
+        summary = compute_summary(values)
+        six = six_sigma_params(values, metric=metric)
+
+        is_cumulative = metric in ("energy_wh", "energy_kwh")
+        consumption = None
+        if is_cumulative and len(values) >= 2:
+            consumption = float(values.max() - values.min())
+
+        return {
+            "summary": summary.__dict__,
+            "six_sigma": six,
+            "consumption": consumption,
+        }
+
+    current = window_stats(now - duration, now)
+    previous = window_stats(now - 2 * duration, now - duration)
+
+    delta_pct = None
+    cur_mean = current["summary"]["mean"]
+    prev_mean = previous["summary"]["mean"]
+    if previous["summary"]["count"] > 0 and prev_mean:
+        delta_pct = ((cur_mean - prev_mean) / abs(prev_mean)) * 100
+
+    return {
+        "period": period,
+        "metric": metric,
+        "current": current,
+        "previous": previous,
+        "delta_pct": delta_pct,
+    }
 
 
 @router.get("/linreg")

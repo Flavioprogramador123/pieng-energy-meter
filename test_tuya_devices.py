@@ -172,3 +172,4 @@ except Exception as e:
     print("  3. Conexão com internet")
     exit(1)
 
+

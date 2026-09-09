@@ -196,3 +196,4 @@ POST http://localhost:8000/api/devices
 
 **CÓDIGO ESTÁ PRONTO! FALTA CADASTRAR OS EQUIPAMENTOS QUE VOCÊ TEM! 🚀**
 
+

@@ -79,10 +79,18 @@ def create_measurement(db: Session, data: schemas.MeasurementCreate) -> models.M
     return obj
 
 
-def list_measurements(db: Session, device_id: int, metric: str | None = None, limit: int = 1000) -> list[models.Measurement]:
+def list_measurements(
+    db: Session,
+    device_id: int,
+    metric: str | None = None,
+    limit: int = 1000,
+    since=None,
+) -> list[models.Measurement]:
     q = db.query(models.Measurement).filter(models.Measurement.device_id == device_id)
     if metric:
         q = q.filter(models.Measurement.metric == metric)
+    if since is not None:
+        q = q.filter(models.Measurement.timestamp >= since)
     return q.order_by(models.Measurement.timestamp.desc()).limit(limit).all()
 
 

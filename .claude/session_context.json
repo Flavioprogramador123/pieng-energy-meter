@@ -1,0 +1,45 @@
+{
+  "project": "pieng-energy-meter",
+  "last_session_date": "2026-09-08",
+  "summary": "Ver CHANGELOG.md na raiz do repo para o relato completo em prosa. Este arquivo é o resumo estruturado para uma sessão de IA continuar o trabalho sem precisar re-descobrir tudo do zero.",
+  "current_architecture": {
+    "database": {
+      "production": "SQLite (data/app.db) - fonte de verdade, servidor ao vivo coletando dados reais a cada 30s",
+      "test_postgres": "Postgres local via docker-compose.yml, container energy_meter_postgres, dados em data/postgres_data/ (nao commitado). Espelha o SQLite via migrate_sqlite_to_postgres.py (idempotente, re-executavel a qualquer momento). DATABASE_URL do app ainda aponta pro SQLite - a troca eh manual e nao foi feita.",
+      "future_postgres": "Servidor Fidelco (mini PC + HD) ainda nao provisionado fisicamente. Ver pieng_postgres/SETUP_FIDELCO.md - specs do script assumem SSD/servidor, precisa ajuste de tuning pro hardware real (mini PC + HD mecanico)."
+    },
+    "devices_registered": {
+      "id_3": "medidorCASA (tuya, categoria tdq - disjuntor trifasico) - device_id eb9a1c787c60d712fazces - medidor real da casa, trifasico, deve ficar sempre ativo. UNICO device restante no banco.",
+      "removed_this_session": "ids 1 (Wifi Plug, device_id ebbef04296002afe3ecxcg) e 2 (Dvr, device_id 73634132ec94cb8039a6) foram apagados pelo usuario via UI (testando o botao de apagar) - remocao intencional, nao restaurar sem o usuario pedir"
+    },
+    "firebase": {
+      "status": "implementado mas desligado (FIREBASE_ENABLED=false no .env)",
+      "strategy": "1 documento por leitura (todas as metricas do poll num map), nao 1 doc por metrica - decisao deliberada por causa da cota gratuita do Firestore",
+      "to_activate": "criar projeto Firebase, gerar service account JSON, salvar em credentials/ (gitignored), setar FIREBASE_ENABLED=true e FIREBASE_CREDENTIALS_PATH no .env"
+    },
+    "theme_system": {
+      "location": "app/static/css/styles.css (:root e :root[data-theme=light]), app/static/js/theme.js",
+      "note": "Chart.js nao le variavel CSS ao vivo - qualquer grafico novo precisa chamar getChartColors() e hexToRgba() de theme.js, e escutar window 'theme-changed' pra se recriar"
+    },
+    "statistics": {
+      "spec_limits": "app/services/analytics.py::SPEC_LIMITS - so tem voltage/frequency/power_factor. Cpk cai pra indice auto-referenciado (nao real) pra qualquer outra metrica (power, current, energy...). Se o usuario quiser Cpk real de corrente/potencia, precisa definir os limites de especificacao dele (nao existe norma generica pra isso)",
+      "period_summary_endpoint": "/api/metrics/period_summary - compara periodo atual com periodo anterior EQUIVALENTE (mesma duracao, imediatamente antes). So vai ter dado no 'anterior' depois que o sistema tiver coletado por mais tempo que 1 periodo (ex: depois de 2 dias rodando pra comparar dia com dia)"
+    }
+  },
+  "known_data_issues": [
+    "Client id=2 no SQLite tem nome corrompido (script PowerShell inteiro, ~2400 chars) - lixo de teste antigo, sem devices associados, nao foi limpo",
+    "5 measurements orfas (device_id de um device ja apagado) - SQLite nao valida FK por padrao, sobrou de uma race condition entre poller e delete via UI",
+    "Ambos os problemas acima sao pulados automaticamente pelo migrate_sqlite_to_postgres.py, nao quebram nada, mas valeria limpar o SQLite em algum momento"
+  ],
+  "pending_next_steps": [
+    "Amanha: usuario vai disponibilizar um HD na maquina de escritorio (fica ligada 24h com internet) - proximo passo de infra e mover o Postgres de teste pra la (via pg_dump/pg_restore, nao copiar a pasta do volume direto)",
+    "Futuro: storage definitivo (mini PC + HD) vai pra casa do usuario - ajustar SETUP_FIDELCO.md do projeto pieng_postgres pro hardware real antes de rodar",
+    "Decidir se/quando cortar o app de SQLite pra Postgres definitivamente (hoje coexistem, SQLite eh a producao)",
+    "Se ativar Firebase: monitorar consumo de storage do Firestore (calculo feito nesta sessao: ~1.8GB em 6 meses com 5 medidores trifasicos, estoura o 1GB gratis por volta do 3-4o mes)",
+    "Six Sigma: se o usuario quiser Cpk real pra mais metricas (corrente, potencia), perguntar os limites de especificacao dele - nao existe norma generica, precisa vir do processo/instalacao dele"
+  ],
+  "processes_to_be_aware_of": {
+    "live_server": "uvicorn app.main:app --reload --port 8000, rodando via Python global (nao a venv do projeto) - eh o coletor real, NAO derrubar sem avisar o usuario, ele depende disso pra continuar coletando dados de energia",
+    "docker": "container energy_meter_postgres (Postgres de teste) - pode ficar rodando ou ser parado com 'docker compose down', nao afeta a coleta real"
+  }
+}
