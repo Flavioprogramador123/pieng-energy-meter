@@ -90,3 +90,6 @@ data/backups/
 
 # Postgres local (docker-compose) - dados do banco, nunca versionar
 data/postgres_data/
+
+# Trava de instância única do scheduler (contém só o PID do processo dono) - runtime, não versionar
+data/.scheduler.lock

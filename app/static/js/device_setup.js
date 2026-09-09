@@ -11,6 +11,8 @@ let clients = [];
 document.addEventListener('DOMContentLoaded', () => {
     loadClients();
     loadDevices();
+    // Descoberta automática ao abrir a página (mesmo projeto Tuya)
+    discoverTuyaCloud();
 });
 
 // ============================================================================
@@ -124,7 +126,7 @@ function displayDevices(devices) {
         <div class="device-item">
             <div class="device-info">
                 <div class="device-name">${device.name}</div>
-                <div class="device-type">${deviceTypeNames[device.device_type] || device.device_type} · ${deviceIdentifier(device)}</div>
+                <div class="device-type">${deviceTypeNames[device.device_type] || device.device_type} · ${deviceIdentifier(device)}${(device.config && device.config.role) ? ' · ' + (device.config.role_label || device.config.role) : ''}</div>
             </div>
             <div class="device-actions">
                 <span class="device-status ${device.active ? 'status-active' : 'status-inactive'}">
@@ -477,5 +479,108 @@ setInterval(() => {
         loadDevices();
     }
 }, 30000);
+
+// ============================================================================
+// TUYA CLOUD DISCOVER / ENROLL
+// ============================================================================
+
+async function discoverTuyaCloud() {
+    const status = document.getElementById('tuya-discover-status');
+    const tbody = document.querySelector('#tuya-discover-table tbody');
+    const btn = document.getElementById('btn-tuya-discover');
+    if (btn) btn.disabled = true;
+    if (status) status.textContent = 'Consultando projeto Tuya Cloud...';
+    try {
+        const res = await fetch('/api/devices/tuya/discover');
+        const data = await res.json();
+        if (!data.ok) {
+            if (status) status.textContent = data.error || 'Falha na descoberta';
+            tbody.innerHTML = `<tr><td colspan="5" class="muted">${data.error || 'Erro'}</td></tr>`;
+            return;
+        }
+        if (status) {
+            status.textContent = `${data.new_count} novo(s) · ${data.energy_new_count || 0} candidato(s) de energia · ${data.registered_count} já no projeto. ${data.hint || ''}`;
+        }
+        if (!data.devices || !data.devices.length) {
+            tbody.innerHTML = '<tr><td colspan="5" class="muted">Nenhum device retornado pela API Tuya.</td></tr>';
+            return;
+        }
+        tbody.innerHTML = '';
+        data.devices.forEach((d) => {
+            const tr = document.createElement('tr');
+            const roleOptions = [
+                ['inverter_output', 'Saída do inversor'],
+                ['grid_point', 'Ponto de entrega / rede'],
+                ['energy_meter', 'Medidor genérico'],
+                ['unknown', 'Revisar'],
+            ].map(([v, l]) => `<option value="${v}" ${d.suggested_role === v ? 'selected' : ''}>${l}</option>`).join('');
+            const action = d.already_registered
+                ? '<span class="badge badge-ok">Já no projeto</span>'
+                : `<button type="button" class="btn btn-primary btn-sm" data-enroll="${d.tuya_device_id}">Incluir no projeto</button>`;
+            tr.innerHTML = `
+              <td>
+                <strong>${escapeHtml(d.name || d.tuya_device_id)}</strong><br>
+                <span class="mono muted" style="font-size:11px">${escapeHtml(d.tuya_device_id)}</span>
+              </td>
+              <td>${escapeHtml(d.category || '—')}<br><span class="muted" style="font-size:11px">${escapeHtml(d.product_name || '')}</span></td>
+              <td>
+                ${d.already_registered ? escapeHtml(d.suggested_role_label || d.suggested_role) : `<select class="role-select" data-role-for="${d.tuya_device_id}">${roleOptions}</select>`}
+              </td>
+              <td>${d.online === true ? 'Online' : (d.online === false ? 'Offline' : '—')}</td>
+              <td>${action}</td>
+            `;
+            tbody.appendChild(tr);
+        });
+        tbody.querySelectorAll('[data-enroll]').forEach((btnEl) => {
+            btnEl.addEventListener('click', () => {
+                const tid = btnEl.getAttribute('data-enroll');
+                const row = data.devices.find((x) => x.tuya_device_id === tid);
+                const sel = tbody.querySelector(`select[data-role-for="${tid}"]`);
+                enrollTuyaDevice(row, sel ? sel.value : (row && row.suggested_role));
+            });
+        });
+    } catch (e) {
+        if (status) status.textContent = e.message || String(e);
+        tbody.innerHTML = `<tr><td colspan="5" class="muted">${e.message || e}</td></tr>`;
+    } finally {
+        if (btn) btn.disabled = false;
+    }
+}
+
+async function enrollTuyaDevice(cloudDevice, role) {
+    if (!cloudDevice) return;
+    try {
+        const res = await fetch('/api/devices/tuya/enroll', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                tuya_device_id: cloudDevice.tuya_device_id,
+                name: cloudDevice.name,
+                role: role || cloudDevice.suggested_role || 'energy_meter',
+                category: cloudDevice.category,
+                product_name: cloudDevice.product_name,
+                active: true,
+            }),
+        });
+        const data = await res.json();
+        if (!res.ok || !data.ok) {
+            showAlert(data.detail || data.message || 'Falha ao incluir', 'error');
+            return;
+        }
+        showAlert(data.message || 'Dispositivo incluído', 'success');
+        await loadDevices();
+        await discoverTuyaCloud();
+    } catch (e) {
+        showAlert(e.message || String(e), 'error');
+    }
+}
+
+function escapeHtml(s) {
+    return String(s ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
 
 

@@ -35,9 +35,9 @@
   <div id="statusMsg" class="status-msg"></div>
 
   <section class="grid" style="grid-template-columns: repeat(3, 1fr)">
-    <div class="card card-chart card-chart-multi" style="grid-column: span 3; min-height: 400px">
+    <div class="card card-chart card-chart-multi" style="grid-column: span 3">
       <h3>Evolução Temporal — Mínimo / Média / Máximo</h3>
-      <canvas id="chartTemporal"></canvas>
+      <div class="chart-wrap chart-wrap-tall"><canvas id="chartTemporal"></canvas></div>
     </div>
 
     <div class="card card-alarms">
@@ -47,7 +47,7 @@
 
     <div class="card card-chart card-chart-power" style="grid-column: span 2">
       <h3>Curva / Distribuição por Hora</h3>
-      <canvas id="chartHourly"></canvas>
+      <div class="chart-wrap"><canvas id="chartHourly"></canvas></div>
     </div>
 
     <div class="card card-averages">
@@ -57,7 +57,7 @@
 
     <div class="card card-chart card-chart-energy" style="grid-column: span 2">
       <h3>Série da Métrica Selecionada</h3>
-      <canvas id="chartEnergy"></canvas>
+      <div class="chart-wrap"><canvas id="chartEnergy"></canvas></div>
     </div>
 
     <div class="card card-pf">
@@ -68,6 +68,12 @@
     <div class="card card-energy" style="grid-column: span 2">
       <h3>Comparação com Período Anterior</h3>
       <div id="periodCompareBox" style="font-size:14px;line-height:2"></div>
+    </div>
+
+    <div class="card card-solar-split" style="grid-column: span 3">
+      <h3>Rede × Solar (injeção)</h3>
+      <p class="muted" style="margin:0 0 8px;font-size:12px">Premissa: potência/corrente negativas = injeção da usina solar na rede.</p>
+      <div id="solarBox" style="font-size:14px;line-height:1.85"></div>
     </div>
   </section>
 {% endblock %}
@@ -87,7 +93,32 @@
       current: 'Corrente (A)',
       power: 'Potência (W)',
       energy_wh: 'Energia (Wh)',
-      power_total: 'Potência Total (W)',
+      energy_kwh: 'Energia (kWh)',
+      power_total: 'Potência líquida total (W)',
+      power_import_total: 'Potência rede — consumo (W)',
+      power_export_total: 'Potência solar — injeção (W)',
+      power_import_l1: 'Potência rede L1 (W)',
+      power_import_l2: 'Potência rede L2 (W)',
+      power_import_l3: 'Potência rede L3 (W)',
+      power_export_l1: 'Potência injeção L1 (W)',
+      power_export_l2: 'Potência injeção L2 (W)',
+      power_export_l3: 'Potência injeção L3 (W)',
+      current_import_total: 'Corrente rede (A)',
+      current_export_total: 'Corrente injeção (A)',
+      current_import_l1: 'Corrente rede L1 (A)',
+      current_import_l2: 'Corrente rede L2 (A)',
+      current_import_l3: 'Corrente rede L3 (A)',
+      current_export_l1: 'Corrente injeção L1 (A)',
+      current_export_l2: 'Corrente injeção L2 (A)',
+      current_export_l3: 'Corrente injeção L3 (A)',
+      energy_imported_total: 'Energia consumida da rede (kWh)',
+      energy_exported_total: 'Energia injetada na rede (kWh)',
+      energy_imported_l1: 'Energia rede L1 (kWh)',
+      energy_imported_l2: 'Energia rede L2 (kWh)',
+      energy_imported_l3: 'Energia rede L3 (kWh)',
+      energy_exported_l1: 'Energia injeção L1 (kWh)',
+      energy_exported_l2: 'Energia injeção L2 (kWh)',
+      energy_exported_l3: 'Energia injeção L3 (kWh)',
       voltage_l1: 'Tensão L1',
       voltage_l2: 'Tensão L2',
       voltage_l3: 'Tensão L3',
@@ -193,7 +224,11 @@
         select.appendChild(opt);
       });
 
-      const preferredOrder = ['power', 'power_total', 'switch_status', 'voltage', 'energy_wh', 'current'];
+      const preferredOrder = [
+        'power_export_total', 'power_import_total', 'power_total', 'power',
+        'energy_exported_total', 'energy_imported_total', 'energy_kwh', 'energy_wh',
+        'current_export_total', 'current_import_total', 'switch_status', 'voltage', 'current'
+      ];
       let chosen = preferMetric && available.some(a => a.metric === preferMetric) ? preferMetric : null;
       if (!chosen) {
         chosen = preferredOrder.find(m => available.some(a => a.metric === m)) || available[0].metric;
@@ -249,10 +284,15 @@
           const consDeltaPct = (prevConsumption && prevConsumption !== 0)
             ? ((data.current.consumption - prevConsumption) / Math.abs(prevConsumption)) * 100
             : null;
+          const energyLabel = (metric || '').includes('export')
+            ? 'Energia injetada no período'
+            : (metric || '').includes('import')
+              ? 'Energia da rede no período'
+              : 'Energia no período (delta)';
           consumptionRow = `
             <hr style="margin:8px 0;border-color:var(--border)">
-            <strong>Consumo no período:</strong> ${data.current.consumption.toFixed(3)}<br>
-            <strong>Consumo no ${periodLabel} anterior:</strong> ${prevConsumption != null ? prevConsumption.toFixed(3) : '—'}<br>
+            <strong>${energyLabel}:</strong> ${data.current.consumption.toFixed(3)}<br>
+            <strong>No ${periodLabel} anterior:</strong> ${prevConsumption != null ? prevConsumption.toFixed(3) : '—'}<br>
             <strong>Variação:</strong> ${fmtDelta(consDeltaPct)}
           `;
         }
@@ -283,6 +323,65 @@
       }
     }
 
+    function fmtKwh(v) {
+      if (v == null || Number.isNaN(Number(v))) return '—';
+      return Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 3 }) + ' kWh';
+    }
+    function fmtW(v) {
+      if (v == null || Number.isNaN(Number(v))) return '—';
+      const n = Number(v);
+      if (Math.abs(n) >= 1000) return (n / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 3 }) + ' kW';
+      return n.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' W';
+    }
+
+    async function loadSolarSummary(deviceId, period) {
+      const box = el('solarBox');
+      if (!box) return;
+      try {
+        const d = await fetchJSON(`/api/metrics/solar_summary?device_id=${deviceId}&period=${period}`);
+        if (!d.ok) {
+          box.innerHTML = '<em>Sem dados de import/export neste período. Aguarde coleta com power_export_* / energy_exported_* (ou potência líquida negativa).</em>';
+          return;
+        }
+        const peak = d.peak_injection;
+        const peakGrid = d.peak_grid_draw;
+        const phases = d.peak_injection_by_phase || {};
+        let phaseHtml = '';
+        for (const ph of ['l1', 'l2', 'l3']) {
+          if (phases[ph]) {
+            phaseHtml += `Pico injeção ${ph.toUpperCase()}: <strong>${fmtW(phases[ph].watts)}</strong><br>`;
+          }
+        }
+        box.innerHTML = `
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px 24px">
+            <div>
+              <strong style="color:var(--ok)">Injeção solar (export)</strong><br>
+              Energia no período: <strong>${fmtKwh(d.energy_injected_kwh)}</strong><br>
+              <span class="muted" style="font-size:11px">fonte: ${d.energy_injected_source || '—'}</span><br>
+              Pico de potência injetada: <strong>${peak ? fmtW(peak.watts) : '—'}</strong><br>
+              ${peak && peak.timestamp ? `<span class="muted" style="font-size:11px">em ${new Date(peak.timestamp).toLocaleString('pt-BR')}</span><br>` : ''}
+              ${phaseHtml}
+            </div>
+            <div>
+              <strong style="color:var(--phase-l1)">Consumo da rede (import)</strong><br>
+              Energia no período: <strong>${fmtKwh(d.energy_consumed_kwh)}</strong><br>
+              <span class="muted" style="font-size:11px">fonte: ${d.energy_consumed_source || '—'}</span><br>
+              Pico de potência da rede: <strong>${peakGrid ? fmtW(peakGrid.watts) : '—'}</strong><br>
+              ${peakGrid && peakGrid.timestamp ? `<span class="muted" style="font-size:11px">em ${new Date(peakGrid.timestamp).toLocaleString('pt-BR')}</span><br>` : ''}
+            </div>
+            <div>
+              <strong>Balanço</strong><br>
+              Líquido (rede − injeção): <strong>${fmtKwh(d.energy_net_kwh)}</strong><br>
+              <span class="muted" style="font-size:11px">${d.premise || ''}</span>
+            </div>
+          </div>
+        `;
+      } catch (error) {
+        console.error('solar_summary:', error);
+        box.innerHTML = `<em>${error.message}</em>`;
+      }
+    }
+
     async function loadAnalytics() {
       if (loading) return;
       loading = true;
@@ -303,6 +402,7 @@
           destroyAllCharts();
           el('statsBox').innerHTML = '<em>Sem medições neste período.</em>';
           el('demandBox').innerHTML = '<em>Sem dados.</em>';
+          if (el('solarBox')) el('solarBox').innerHTML = '<em>Sem dados.</em>';
           setStatus('warn', 'Nenhum dado real neste período. O sistema não inventa medições. Aguarde o poller ou escolha outro período/dispositivo.');
           return;
         }
@@ -429,10 +529,12 @@
         }
 
         await loadPeriodSummary(deviceId, metric, period);
+        await loadSolarSummary(deviceId, period);
       } catch (error) {
         console.error(error);
         setStatus('err', `Erro ao carregar analytics: ${error.message}`);
         el('statsBox').innerHTML = `<em>${error.message}</em>`;
+        if (el('solarBox')) el('solarBox').innerHTML = `<em>${error.message}</em>`;
       } finally {
         loading = false;
         el('loadBtn').disabled = false;

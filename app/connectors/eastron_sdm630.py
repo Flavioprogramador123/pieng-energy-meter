@@ -63,20 +63,22 @@ def read_sdm630_metrics(client: Union[Any, Any], base_address: int = 0) -> Dict[
     energy_kwh = regs_to_float32(regs_freq_energy[2], regs_freq_energy[3])
     power_factor = regs_to_float32(regs_pf[0], regs_pf[1])
 
-    return {
+    from app.services.flow_split import apply_import_export_split
+
+    metrics = {
         # Tensões por fase
         "voltage_l1": v1,
         "voltage_l2": v2,
         "voltage_l3": v3,
         "voltage_avg": (v1 + v2 + v3) / 3,
 
-        # Correntes por fase
+        # Correntes por fase (sinal negativo = injeção solar — premissa do projeto)
         "current_l1": i1,
         "current_l2": i2,
         "current_l3": i3,
         "current_total": i1 + i2 + i3,
 
-        # Potências por fase
+        # Potências por fase (negativo = injeção)
         "power_l1": p1,
         "power_l2": p2,
         "power_l3": p3,
@@ -91,3 +93,4 @@ def read_sdm630_metrics(client: Union[Any, Any], base_address: int = 0) -> Dict[
         "_raw_main": regs_main,
         "_device": "SDM630-Modbus-MID"
     }
+    return apply_import_export_split(metrics)

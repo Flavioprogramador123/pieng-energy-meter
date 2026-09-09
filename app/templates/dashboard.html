@@ -5,7 +5,7 @@
 
 {% block extra_head %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script defer src="/static/js/dashboard.js?v=8"></script>
+  <script defer src="/static/js/dashboard.js?v=16"></script>
 {% endblock %}
 
 {% block content %}
@@ -25,9 +25,26 @@
       <button type="button" class="period-btn" data-period="1m">Mês</button>
     </div>
 
+    <div class="period-nav" role="group" aria-label="Navegar no histórico">
+      <button type="button" id="periodPrevBtn" class="btn-nav" title="Período anterior">&#9664;</button>
+      <span id="periodRangeLabel" class="period-range-label">--</span>
+      <button type="button" id="periodNextBtn" class="btn-nav" title="Próximo período">&#9654;</button>
+      <button type="button" id="periodTodayBtn" class="btn-secondary" title="Voltar para agora">Hoje</button>
+    </div>
+
     <button id="refreshBtn">Atualizar</button>
     <button id="configBtn" class="btn-config" title="Configurações">&#9881;</button>
     <span style="margin-left:auto;color:var(--text-faint)">Atualização automática a cada 30s</span>
+  </section>
+
+  <section class="time-zoom" id="timeZoomBar" title="Arraste para focar num intervalo específico dentro do período — afeta todos os gráficos e valores abaixo">
+    <span class="time-zoom-tag">Zoom</span>
+    <div class="time-zoom-track">
+      <input type="range" id="zoomFrom" min="0" max="1000" value="0" step="1" title="Início do intervalo" />
+      <input type="range" id="zoomTo" min="0" max="1000" value="1000" step="1" title="Fim do intervalo" />
+    </div>
+    <span id="zoomRangeLabel" class="time-zoom-range">--</span>
+    <button type="button" id="zoomResetBtn" class="btn-secondary">Período completo</button>
   </section>
 
   <div id="dataIntegrityBanner" style="display:none"></div>
@@ -137,68 +154,80 @@
     </div>
   </div>
 
-  <section class="grid">
-    <!-- Cards de valores em tempo real -->
+  <!-- Leituras instantâneas — faixa compacta -->
+  <section class="live-strip">
     <div class="card card-live card-switch">
-      <h3>Switch / Relé</h3>
+      <h3>Switch</h3>
       <div class="live-value" id="liveSwitch">--</div>
     </div>
-
     <div class="card card-live card-voltage">
       <h3>Tensão</h3>
       <div class="live-value" id="liveVoltage">-- V</div>
     </div>
-
     <div class="card card-live card-current">
       <h3>Corrente</h3>
       <div class="live-value" id="liveCurrent">-- A</div>
     </div>
-
     <div class="card card-live card-power">
       <h3>Potência</h3>
       <div class="live-value" id="livePower">-- W</div>
     </div>
-
+    <div class="card card-live card-solar" id="cardSolar" style="display:none">
+      <h3>Rede / Solar</h3>
+      <div class="live-value" id="liveGridSolar">--</div>
+    </div>
     <div class="card card-live card-energy">
-      <h3>Energia Total</h3>
+      <h3>Energia</h3>
       <div class="live-value" id="liveEnergy">-- kWh</div>
     </div>
-
     <div class="card card-live card-pf">
-      <h3>Fator de Potência</h3>
+      <h3>FP</h3>
       <div class="live-value" id="livePF">--</div>
     </div>
-
     <div class="card card-live card-cost">
-      <h3>Custo Estimado</h3>
+      <h3>Custo</h3>
       <div class="live-value" id="liveCost">R$ --</div>
     </div>
+  </section>
 
-    <!-- Gráficos de séries temporais -->
+  <section class="grid charts-grid">
     <div class="card card-chart card-chart-voltage">
-      <h3>Tensão (V) — Série Temporal</h3>
-      <canvas id="chartVoltage"></canvas>
+      <h3>Tensão (V)</h3>
+      <div class="chart-wrap"><canvas id="chartVoltage"></canvas></div>
     </div>
-
-    <div class="card card-chart card-chart-current">
-      <h3>Corrente (A) — Série Temporal</h3>
-      <canvas id="chartCurrent"></canvas>
+    <div class="card card-chart card-chart-current" id="cardCurrentCombined">
+      <h3>Corrente (A)</h3>
+      <div class="chart-wrap"><canvas id="chartCurrent"></canvas></div>
     </div>
-
-    <div class="card card-chart card-chart-power">
-      <h3>Potência (W) — Série Temporal</h3>
-      <canvas id="chartPower"></canvas>
+    <div class="card card-chart card-chart-current" id="cardCurrentImport" style="display:none">
+      <h3>Corrente (A) — Consumo (Rede)</h3>
+      <div class="chart-wrap"><canvas id="chartCurrentImport"></canvas></div>
     </div>
-
+    <div class="card card-chart card-chart-current card-injection" id="cardCurrentExport" style="display:none">
+      <h3>Corrente (A) — Injeção (Solar)</h3>
+      <div class="chart-wrap"><canvas id="chartCurrentExport"></canvas></div>
+    </div>
+    <div class="card card-chart card-chart-power" id="cardPowerCombined">
+      <h3>Potência (W)</h3>
+      <div class="chart-wrap"><canvas id="chartPower"></canvas></div>
+    </div>
+    <div class="card card-chart card-chart-power" id="cardPowerImport" style="display:none">
+      <h3>Potência (W) — Consumo (Rede)</h3>
+      <div class="chart-wrap"><canvas id="chartPowerImport"></canvas></div>
+    </div>
+    <div class="card card-chart card-chart-power card-injection" id="cardPowerExport" style="display:none">
+      <h3>Potência (W) — Injeção (Solar)</h3>
+      <div class="chart-wrap"><canvas id="chartPowerExport"></canvas></div>
+    </div>
     <div class="card card-chart card-chart-energy">
-      <h3>Energia (Wh) — Série Temporal</h3>
-      <canvas id="chartEnergy"></canvas>
+      <h3>Energia (Wh)</h3>
+      <div class="chart-wrap"><canvas id="chartEnergy"></canvas></div>
     </div>
 
-    <!-- Gráfico multi-métrica e alarmes -->
     <div class="card card-chart card-chart-multi" style="grid-column: span 2">
       <h3>Monitoramento Completo — Multi-Métrica</h3>
-      <canvas id="chartMulti"></canvas>
+      <div class="chart-wrap chart-wrap-tall"><canvas id="chartMulti"></canvas></div>
+      <p id="chartMultiDay" class="chart-data-day"></p>
     </div>
 
     <div class="card card-alarms">
@@ -210,8 +239,8 @@
     </div>
 
     <div class="card card-averages">
-      <h3>Médias do Período Selecionado</h3>
-      <div id="averagesBox" style="font-size:14px;line-height:2"></div>
+      <h3>Médias do Período</h3>
+      <div id="averagesBox" class="averages-box"></div>
     </div>
   </section>
 {% endblock %}

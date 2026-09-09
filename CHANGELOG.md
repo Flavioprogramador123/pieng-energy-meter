@@ -3,7 +3,218 @@
 Todas as mudanças relevantes do projeto Energy Meter são registradas aqui.
 Formato livre, em português, por sessão de trabalho.
 
+## 2026-09-09 (noite, cont.) — Navegação de período (dia/semana/mês anterior) + achado: servidores duplicados
+
+### Adicionado
+- **Navegação no histórico** ao lado da régua Dia/Semana/Mês: botões ◀ / ▶ +
+  "Hoje", pra folhear dias/semanas/meses passados agora que o Postgres/SQLite
+  vão acumular várias janelas de dados (antes só dava pra ver "últimas 24h/7d/
+  30d a partir de agora", sem navegar pro passado).
+  - Backend: `GET /api/metrics` ganhou parâmetro opcional `end` (ISO, âncora
+    do fim da janela) — sem ele, comportamento idêntico a antes (janela
+    terminando "agora"). `crud.list_measurements` ganhou `until`.
+  - Frontend: `anchorEnd` (epoch ms ou `null`="agora"); `metricsUrl()` manda
+    `end` em hora LOCAL sem timezone (`toNaiveLocalISOString`) pra bater com
+    o que o poller grava (`datetime.now()`, sem tzinfo) — usar `toISOString()`
+    (sempre UTC) quebraria a comparação no banco.
+  - Detecção de "é trifásico" deixou de depender da janela navegada (checava
+    `voltage_l1` dentro do período; navegar pra um dia sem dados fazia cair
+    no branch monofásico por engano) — agora é uma checagem de capacidade do
+    device, sem filtro de período.
+  - Auto-refresh de 30s pausa sozinho quando o usuário está olhando um
+    período passado fixo (não tem o que atualizar).
+  - Zoom (`timeWindow`) e navegação resetam pro completo ao trocar de
+    device/período ou voltar em "Hoje".
+
+### Achado (não corrigido nesta sessão — avaliar com o usuário)
+- Durante o teste, encontrados **dois processos uvicorn rodando ao mesmo
+  tempo** contra o mesmo `data/app.db`: um na porta 8000 (mais antigo, PID
+  invisível para consultas WMI/CIM nesta sessão — possivelmente iniciado em
+  outra sessão/elevação) e um par supervisor+worker na porta 8001 (visível,
+  `--reload`, reflete corretamente mudanças de código Python). Evidência:
+  `power_total` do `medidorCASA` estava sendo gravado a cada ~8-12s em vez
+  dos 30s configurados — indica pollers duplicados batendo na API Tuya e no
+  SQLite ao mesmo tempo. Templates/estáticos (HTML/CSS/JS) aparecem
+  corretamente atualizados nas duas portas porque são lidos do disco a cada
+  request; só a lógica Python (ex.: o parâmetro `end` novo) precisa do
+  processo realmente recarregado, e isso só foi confirmado na porta 8001.
+  Não encerrei nenhum processo — decisão do usuário sobre qual manter.
+
+## 2026-09-09 (noite) — Zoom de tempo compartilhado + fix de loop no chart-wrap
+
+### Corrigido
+- **`.chart-wrap` crescendo indefinidamente** (mais visível no card multi-métrica):
+  tinha `flex:1` dentro de um `.card` (`display:flex; column`) com altura `auto`
+  (`grid-auto-rows:minmax(0,auto)`). Loop: canvas mede 100% do wrapper → wrapper
+  (flex:1) cresce → card cresce (altura auto) → wrapper recalcula 100% maior →
+  canvas cresce de novo. Trocado `flex:1` por `flex:0 0 auto`, altura passa a vir
+  só do `height:220px`/`280px` fixo, sem disputa com o flexbox. `styles.css` v11→v12.
+
+### Adicionado
+- **Régua de zoom de tempo única** (`#timeZoomBar`, dois `<input type=range>`
+  sobrepostos) acima dos cards: no período "Dia" (24h) dá pra focar, por exemplo,
+  só das 12h às 15h — e isso agora reflete em TODOS os cards (valores ao vivo,
+  médias, e todos os gráficos: tensão, corrente/potência consumo×injeção, energia,
+  multi-métrica), sem refazer requisição ao servidor (filtra client-side os dados
+  já carregados do período Dia/Semana/Mês).
+- Refatorado `dashboard.js`: `loadData()` agora só busca dados e guarda em
+  `rawCache`; todo o desenho (valores + gráficos) foi extraído pra
+  `renderFromCache()`, que aplica `filterWindow()` e roda de novo sem rede a cada
+  arrasto da régua. Zoom é absoluto (epoch ms), não normalizado — sobrevive ao
+  auto-refresh de 30s sem "pular". Trocar de dispositivo ou de período (Dia/
+  Semana/Mês) reseta o zoom pro completo automaticamente.
+- `dashboard.js` v12→v13, `dashboard.html` v12→v13, `styles.css` v12→v13.
+
+## 2026-09-09 (fim de tarde) — Separação consumo (rede) vs injeção (solar)
+
+### Contexto
+- `power_total` do `medidorCASA` fica negativo (ex.: -2308 W). Investigado se seria
+  geração solar real ou TC instalado ao contrário. Consultando a API Tuya diretamente
+  (dados reais, dispositivo `eb9a1c787c60d712fazces`) confirmou-se que o hardware já
+  mede os dois sentidos separadamente por fase: `forward_energy_a/b/c/total`
+  (consumida da rede) e `reverse_energy_a/b/c/total` (injetada na rede), além de
+  `active_power_a/b/c` virem com sinal. No instante da checagem, fase L2 sozinha
+  injetava ~2365 W a FP≈1.0 (10.38 A) enquanto L1/L3 tinham cargas pequenas — padrão
+  de inversor solar monofásico num circuito só, não de TC generalizado invertido.
+  Teste decisivo pendente: conferir se `power_total` fica positivo de madrugada
+  (sem produção solar possível); se continuar negativo à noite, aí sim é TC invertido.
+
+### Adicionado
+- `app/services/tuya_poller.py::parse_tuya_data()` agora extrai e grava, por fase e
+  total: `energy_imported_*`/`energy_exported_*` (kWh acumulado real do próprio
+  hardware, direto de `forward_energy_*`/`reverse_energy_*` — não é estimativa) e
+  `power_import_*`/`power_export_*`/`current_import_*`/`current_export_*`
+  (instantâneos, derivados do sinal já presente em `active_power_a/b/c/total`).
+  Limitação conhecida: `current_*` do Tuya não tem sinal próprio (só magnitude), então
+  a corrente é atribuída ao sentido da fase no instante da leitura — não isola a
+  corrente do inversor de fato sem um TC dedicado nele (próximo passo se o usuário
+  quiser simultaneidade real produção×consumo).
+- Card **"Rede / Solar"** no dashboard (`dashboard.html`/`dashboard.js` v11): mostra
+  W/A injetados vs consumidos agora, e kWh acumulado injetado vs consumido. Some
+  automaticamente para devices que não têm essas métricas (monofásicos sem solar).
+- **Gráficos de Potência e Corrente espelhados** (v12): os cards únicos "Potência (W)"
+  e "Corrente (A)" (3 fases, valor líquido) viram 2 cards cada quando o device tem
+  dado de import/export — "Consumo (Rede)" e "Injeção (Solar)", sempre com L1/L2/L3
+  lado a lado. Bate o olho e já mostra qual fase tem solar (no `medidorCASA`, é a L2).
+  Devices sem essas métricas continuam vendo o gráfico único de antes.
+
+## 2026-09-09 (noite++) — Flush 30 min + teto cache SQLite 200 MB
+
+### Decisão (teste no escritório, máquina não dedicada)
+- Flush SQLite → Postgres (espelho no `K:`) a cada **30 minutos** (antes 10).
+- Teto do hot cache SQLite: **200 MB** ≈ **~3 dias com ~3 aparelhos** trifásicos no ritmo atual (~15 MB/dia/device).
+- Se o HD `K:` ficar fora, a coleta **não para**: dados ficam no SQLite até o próximo flush bem-sucedido.
+- Em máquina dedicada / produção futura, dá para subir intervalo e teto pela UI sem editar código.
+
+### Alterado
+- `data/runtime_settings.json`: `postgres_flush_interval_minutes: 30`, `sqlite_cache_max_mb: 200`.
+- `app/services/runtime_settings.py`: defaults 30 / 200 + `sqlite_cache_status()`.
+- `app/routers/db_panel.py` + `db_panel.html` / `db_panel.js`: campo teto MB + uso atual (% / alerta se passar do teto).
+- `app/main.py`: fallback do job `postgres_flush` = 30 min; PATCH `/api/db/settings` reescalona o APScheduler.
+- `env.example` + `docs/SETUP_POSTGRES_NATIVO_K.md` + `K:\storage\README.txt` alinhados.
+
+### Operacional
+- Servidor de coleta: **http://127.0.0.1:8001/** (porta 8000 ficou com processos zumbis nesta sessão).
+- Reinício limpo do uvicorn foi necessário quando `--reload` travou a meio; depois disso status confirmou flush 30 min + cache 200 MB (SQLite ~4–5 MB no momento).
+
+## 2026-09-09 (noite+) — Descoberta Tuya + papel inversor / nuvem
+
+### Contexto
+- Storage permanece no **escritório** (`K:\STORAGE`).
+- Em casa: novo medidor Tuya na **saída do inversor** (mesmo projeto Cloud).
+- Meta: reconhecer medidor novo e incluir no projeto com pouco esforço; acesso remoto via túnel/Tailscale (doc).
+
+### Adicionado
+- `GET /api/devices/tuya/discover` — lista Cloud vs cadastrados, sugere `role`.
+- `POST /api/devices/tuya/enroll` — inclui com 1 clique (`config.role`: `grid_point` | `inverter_output` | …).
+- UI no Setup (`device_setup.html` / `device_setup.js`): card “Tuya na nuvem”.
+- `docs/ROADMAP_CASA_INVERSOR_NUVEM.md` — arquitetura escritório/casa/nuvem.
+
+## 2026-09-09 (noite) — Premissa solar: negativo = injeção + métricas Rede×Solar
+
+### Premissa (oficial)
+- **Potência/corrente negativas = injeção de usina solar** (export para a rede).
+- Positivo = consumo da rede (import).
+- Potências finais ficam separadas: `power_import_*` / `power_export_*` (+ correntes e energias).
+
+### Adicionado
+- `app/services/flow_split.py` — helper de split + `is_cumulative_energy_metric`.
+- `GET /api/metrics/solar_summary` — no período: kWh injetado, kWh da rede, pico de injeção (W + timestamp), pico rede, balanço líquido.
+- Card **Rede × Solar (injeção)** na Análise Temporal (`analytics.html`).
+- Labels de métricas import/export no seletor.
+- SDM630 (`eastron_sdm630.py`) agora também grava split import/export (mesma premissa).
+- `period_summary` trata `energy_imported_*` / `energy_exported_*` como acumuladores (delta no período).
+
+### Notas
+- Preferência de energia: delta de `energy_exported_total` / `energy_imported_total` (hardware Tuya); fallback = integração de `power_export_total` / `power_import_total`; último recurso = `power_total` com sinal.
+
+## 2026-09-09 (tarde++) — Favicon PIENG
+
+### Alterado
+- Favicon estava vazio (`app/static/favicon.png` = 0 bytes). Substituído pelos assets oficiais da pasta `E:\Projetos\Pieng_doc\backend\logo\` (π dourado / escudo).
+- `base.html` agora referencia `favicon.ico` + PNG 16/32/48 + apple-touch (`static/brand/logo-app-96.png`).
+- Cópias da marca em `app/static/brand/` (`logo-pieng.png`, `logo-escuro.png`, `logo-app-96.png`).
+
+## 2026-09-09 (tarde+) — Painel Banco/Storage + flush SQLite→Postgres configurável
+
+### Adicionado
+- **Painel** `GET /api/db` — status do Postgres no K:, contagens SQLite×Postgres, browser de tabelas, flush manual.
+- **Flush automático** SQLite (hot) → Postgres espelho, intervalo em `data/runtime_settings.json` (UI altera sem editar .env). Padrão **10 min**; usuário sobe para **30** de noite.
+- Serviços: `app/services/postgres_mirror.py`, `app/services/runtime_settings.py`, router `app/routers/db_panel.py`.
+
+### Comportamento
+- Dashboard/coleta **continuam no SQLite**. Postgres no K: é espelho.
+- Explicação do `DATABASE_URL` está no próprio painel (não trocamos a URL ao vivo).
+
+### Docs
+- `docs/SETUP_POSTGRES_NATIVO_K.md`, `CHANGELOG.md`, `.claude/session_context.json`, nav em `base.html`.
+
+## 2026-09-09 (tarde) — Postgres nativo no HD K:\STORAGE (teste escritório)
+
+### Contexto
+- Usuário disponibilizou o HD `K:` (rótulo STORAGE, ~149 GB, USB ASMT) para storage multi-banco.
+- Mini PC / Fidelco ainda **não** implementado; Docker Desktop **não** instalado nesta máquina.
+- Decisão: usar **Postgres nativo** para o teste agora; **manter** `docker-compose.yml` intacto para o futuro.
+
+### Infra / storage
+- Layout criado em `K:\storage\` (`postgres\`, `backups\`, `cache\`, `dados\`) + `K:\storage\README.txt`.
+- **PostgreSQL 17.11** instalado via EDB (serviço `postgresql-x64-17`, Automatic).
+- Data directory: `K:\storage\postgres\energy_meter\pgdata` (confirmado com `data_directory`).
+- Role/DB de app: `energy_meter` / `energy_meter` (senha de teste alinhada ao compose).
+- Migração REAL: `migrate_sqlite_to_postgres.py` → 4 clients, 1 device (`medidorCASA` id=5), **2641 measurements**.
+- `psycopg2-binary` atualizado na venv para `>=2.9.12` (wheel cp313; 2.9.9 não buildava no Python 3.13).
+
+### Docker preservado (não apagado)
+- `docker-compose.yml` mantido de propósito.
+- Volume Docker separado: `K:/storage/postgres/energy_meter_docker` (não colide com o nativo).
+- Porta host do compose mudada para **5433** (nativo já ocupa 5432).
+
+### Documentação
+- Novo: `docs/SETUP_POSTGRES_NATIVO_K.md`
+- Atualizados: `CHANGELOG.md`, `.claude/session_context.json`, `env.example`, `requirements.txt`, `K:\storage\README.txt`
+- Nota em `SETUP_FIDELCO.md` apontando o estado atual do escritório
+
+### Política HD + cache (combinada)
+- HD mecânico: preferir **ficar ligado** a ciclar spin-up/spin-down.
+- Hot path = SQLite no NVMe (coleta ~30s); espelho = Postgres no `K:`.
+- Flush a cada 5–10 min é opção futura; não exige desligar o HD.
+
+### Não feito de propósito
+- **Não** trocou `DATABASE_URL` do app ao vivo (uvicorn continua no SQLite).
+- **Não** instalou Docker Desktop.
+- **Não** removeu arquivos preparados para Docker.
+
+## 2026-09-09 — Sessão: fix de boot sem libs do Google, storage do Postgres de teste no HD do escritório
+
+### Corrigido
+- **App quebrava ao iniciar na venv do projeto**: `app/connectors/google_drive.py` importava `google.oauth2`/`googleapiclient` incondicionalmente; esses pacotes não estão instalados em `.venv` (só no Python global). Import agora é opcional (`GOOGLE_AVAILABLE` flag) e `app/routers/__init__.py` registra o router de storage só se ele carregar, sem derrubar o resto da API. Emojis removidos dos prints (mesmo motivo de cp1252 já corrigido no poller Tuya).
+- **Prefixo duplicado em `/api/storage`**: `app/routers/storage.py` declarava `prefix="/api/storage"` e era montado de novo sob `/api` em `main.py`, resultando em `/api/api/storage/...`. Corrigido para `prefix="/storage"`.
+
+### Alterado
+- **Postgres de teste (`docker-compose.yml`)**: volume movido de `./data/postgres_data` (nunca chegou a ser usado nesta máquina, sem dados) para path no HD do escritório. Em seguida (mesma data, sessão da tarde) o path Docker foi separado de novo para `energy_meter_docker` + porta 5433, porque o teste passou a usar Postgres **nativo** em `energy_meter\pgdata`.
+
 ## 2026-09-08/09 — Sessão: dados Tuya trifásicos, CRUD de dispositivos, Firebase, Postgres de teste, redesign visual, tema claro/escuro, análise estatística
+
 
 ### Corrigido
 - **Coleta Tuya trifásica (`medidorCASA`)**: o poller usava a API v1.0 (`getstatus`), que para a categoria "tdq" (disjuntor trifásico) só retorna 3 DPs básicos (`switch_1`, `fault`, `relay_status`) mesmo com o dispositivo reportando tensão/corrente/potência por fase. Trocado para o endpoint v2.0 `cloud/thing/{id}/shadow/properties`, que retorna todos os DPs. `parse_tuya_data()` agora mapeia `voltage_a/b/c`, `current_a/b/c`, `active_power_a/b/c`, `power_factor_a/b/c`, `forward_energy_total`, `frequency` para os mesmos nomes já usados pelo driver SDM630 (`voltage_l1`, `power_total`, `energy_kwh`...), reaproveitando toda a UI existente sem mudanças de schema.

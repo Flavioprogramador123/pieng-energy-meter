@@ -6,6 +6,7 @@ from .. import crud, schemas, models
 import pandas as pd
 from datetime import datetime, timedelta
 from ..services.analytics import compute_summary, linear_regression, six_sigma_params
+from ..services.flow_split import is_cumulative_energy_metric
 
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
@@ -17,9 +18,11 @@ def list_metrics(
     metric: str | None = Query(default=None),
     limit: int = 500,
     period: str | None = Query(default=None),  # 1d, 1w, 1m
+    end: str | None = Query(default=None),  # âncora ISO opcional p/ navegar dias/semanas/meses passados
     db: Session = Depends(get_db),
 ):
     since = None
+    until = None
     if period:
         period_map = {
             "1d": timedelta(days=1),
@@ -30,12 +33,14 @@ def list_metrics(
         }
         delta = period_map.get(period)
         if delta:
-            since = datetime.utcnow() - delta
+            end_dt = datetime.fromisoformat(end) if end else datetime.utcnow()
+            since = end_dt - delta
+            until = end_dt if end else None
             # Para períodos longos, permitir mais pontos
             if period in ("1w", "1m") and limit < 5000:
                 limit = 5000
 
-    rows = crud.list_measurements(db, device_id=device_id, metric=metric, limit=limit, since=since)
+    rows = crud.list_measurements(db, device_id=device_id, metric=metric, limit=limit, since=since, until=until)
     # Retornar como dict diretamente para evitar problemas de serialização JSON
     return [
         {
@@ -323,7 +328,7 @@ def metrics_period_summary(
         summary = compute_summary(values)
         six = six_sigma_params(values, metric=metric)
 
-        is_cumulative = metric in ("energy_wh", "energy_kwh")
+        is_cumulative = is_cumulative_energy_metric(metric)
         consumption = None
         if is_cumulative and len(values) >= 2:
             consumption = float(values.max() - values.min())
@@ -349,6 +354,177 @@ def metrics_period_summary(
         "current": current,
         "previous": previous,
         "delta_pct": delta_pct,
+    }
+
+
+@router.get("/solar_summary")
+def solar_summary(
+    device_id: int,
+    period: str = Query(default="1d"),
+    db: Session = Depends(get_db),
+):
+    """
+    Resumo Rede × Solar no período (dados REAIS).
+
+    Premissa: potência/corrente negativas = injeção solar (export).
+    - Energia injetada/consumida: delta dos acumuladores energy_exported_* /
+      energy_imported_* quando existirem; senão integração de power_export/import.
+    - Pico de injeção: máximo de power_export_total (W) + timestamp.
+    """
+    period_map = {
+        "1h": timedelta(hours=1),
+        "6h": timedelta(hours=6),
+        "1d": timedelta(days=1),
+        "1w": timedelta(weeks=1),
+        "1m": timedelta(days=30),
+    }
+    end = datetime.utcnow()
+    start = end - period_map.get(period, timedelta(days=1))
+
+    def series(metric: str):
+        rows = (
+            db.query(models.Measurement)
+            .filter(
+                models.Measurement.device_id == device_id,
+                models.Measurement.metric == metric,
+                models.Measurement.timestamp >= start,
+                models.Measurement.timestamp <= end,
+            )
+            .order_by(models.Measurement.timestamp.asc())
+            .all()
+        )
+        return rows
+
+    def energy_delta_kwh(metric: str) -> float | None:
+        rows = series(metric)
+        if len(rows) < 2:
+            return None
+        # acumulador: último − primeiro (mais robusto que max−min se houver reset)
+        delta = float(rows[-1].value) - float(rows[0].value)
+        if delta < 0:
+            # possível reset do medidor — usa max−min como fallback
+            vals = [float(r.value) for r in rows]
+            delta = max(vals) - min(vals)
+        return delta
+
+    def integrate_power_kwh(metric: str) -> float | None:
+        rows = series(metric)
+        if len(rows) < 2:
+            return None
+        wh = 0.0
+        for a, b in zip(rows, rows[1:]):
+            dt_h = (b.timestamp - a.timestamp).total_seconds() / 3600.0
+            if dt_h <= 0:
+                continue
+            # potência média entre amostras (W) → Wh
+            wh += ((float(a.value) + float(b.value)) / 2.0) * dt_h
+        return wh / 1000.0
+
+    def peak_power(metric: str) -> dict | None:
+        rows = series(metric)
+        if not rows:
+            return None
+        best = max(rows, key=lambda r: float(r.value))
+        return {
+            "watts": float(best.value),
+            "kw": float(best.value) / 1000.0,
+            "timestamp": best.timestamp.isoformat(),
+            "metric": metric,
+            "samples": len(rows),
+        }
+
+    # Preferência: acumuladores do hardware (Tuya reverse/forward)
+    injected = energy_delta_kwh("energy_exported_total")
+    consumed = energy_delta_kwh("energy_imported_total")
+    injected_source = "energy_exported_total" if injected is not None else None
+    consumed_source = "energy_imported_total" if consumed is not None else None
+
+    if injected is None:
+        injected = integrate_power_kwh("power_export_total")
+        if injected is not None:
+            injected_source = "power_export_total_integrated"
+    if consumed is None:
+        consumed = integrate_power_kwh("power_import_total")
+        if consumed is not None:
+            consumed_source = "power_import_total_integrated"
+
+    # Se ainda não há split gravado, tenta a partir de power_total líquido
+    # (amostras negativas = injeção) — só quando não existirem métricas export.
+    if injected is None and consumed is None:
+        rows = series("power_total")
+        if len(rows) >= 2:
+            wh_exp = 0.0
+            wh_imp = 0.0
+            for a, b in zip(rows, rows[1:]):
+                dt_h = (b.timestamp - a.timestamp).total_seconds() / 3600.0
+                if dt_h <= 0:
+                    continue
+                pa, pb = float(a.value), float(b.value)
+                mid = (pa + pb) / 2.0
+                if mid < 0:
+                    wh_exp += abs(mid) * dt_h
+                else:
+                    wh_imp += mid * dt_h
+            injected = wh_exp / 1000.0
+            consumed = wh_imp / 1000.0
+            injected_source = "power_total_signed_integrated"
+            consumed_source = "power_total_signed_integrated"
+
+    peak_inj = peak_power("power_export_total")
+    peak_grid = peak_power("power_import_total")
+
+    # Fallback de pico via power_total (mais negativo = maior injeção)
+    if peak_inj is None:
+        rows = series("power_total")
+        if rows:
+            best = min(rows, key=lambda r: float(r.value))
+            if float(best.value) < 0:
+                peak_inj = {
+                    "watts": abs(float(best.value)),
+                    "kw": abs(float(best.value)) / 1000.0,
+                    "timestamp": best.timestamp.isoformat(),
+                    "metric": "power_total_abs_min",
+                    "samples": len(rows),
+                }
+    if peak_grid is None:
+        rows = series("power_total")
+        if rows:
+            best = max(rows, key=lambda r: float(r.value))
+            if float(best.value) > 0:
+                peak_grid = {
+                    "watts": float(best.value),
+                    "kw": float(best.value) / 1000.0,
+                    "timestamp": best.timestamp.isoformat(),
+                    "metric": "power_total_max",
+                    "samples": len(rows),
+                }
+
+    phases = {}
+    for ph in ("l1", "l2", "l3"):
+        p = peak_power(f"power_export_{ph}")
+        if p:
+            phases[ph] = p
+
+    has_data = any(v is not None for v in (injected, consumed, peak_inj, peak_grid))
+
+    return {
+        "ok": has_data,
+        "premise": "Corrente/potência negativas = injeção solar (export para a rede).",
+        "period": period,
+        "start": start.isoformat(),
+        "end": end.isoformat(),
+        "energy_injected_kwh": injected,
+        "energy_consumed_kwh": consumed,
+        "energy_net_kwh": (
+            None
+            if injected is None or consumed is None
+            else float(consumed) - float(injected)
+        ),
+        "energy_injected_source": injected_source,
+        "energy_consumed_source": consumed_source,
+        "peak_injection": peak_inj,
+        "peak_grid_draw": peak_grid,
+        "peak_injection_by_phase": phases,
     }
 
 

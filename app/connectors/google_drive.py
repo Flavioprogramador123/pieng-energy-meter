@@ -3,27 +3,42 @@ import os
 import json
 import io
 from datetime import datetime, timedelta
-from google.oauth2 import service_account
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
-import pandas as pd
 from typing import List, Dict, Optional
+
+try:
+    from google.oauth2 import service_account
+    from googleapiclient.discovery import build
+    from googleapiclient.errors import HttpError
+    GOOGLE_AVAILABLE = True
+except ImportError:  # pacotes Google opcionais
+    service_account = None  # type: ignore
+    build = None  # type: ignore
+    HttpError = Exception  # type: ignore
+    GOOGLE_AVAILABLE = False
+
+import pandas as pd
 
 class GoogleDriveStorage:
     def __init__(self):
         self.credentials_file = os.getenv("GOOGLE_DRIVE_CREDENTIALS_FILE")
         self.folder_id = os.getenv("GOOGLE_DRIVE_FOLDER_ID")
         self.service = None
-        
+
+        if not GOOGLE_AVAILABLE:
+            print("Google Drive API indisponivel (pacotes google nao instalados)")
+            return
+
         # Tentar inicializar o serviço
         try:
             self.service = self._authenticate()
-            print("✅ Google Drive API inicializada com sucesso!")
+            print("Google Drive API inicializada com sucesso!")
         except Exception as e:
-            print(f"❌ Erro ao inicializar Google Drive API: {e}")
+            print(f"Erro ao inicializar Google Drive API: {e}")
     
     def _authenticate(self):
         """Autenticar com Google Drive API"""
+        if not GOOGLE_AVAILABLE:
+            raise RuntimeError("Pacotes Google nao instalados")
         if not self.credentials_file:
             raise ValueError("GOOGLE_DRIVE_CREDENTIALS_FILE não configurado")
         
