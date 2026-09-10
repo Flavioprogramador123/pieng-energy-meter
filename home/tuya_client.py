@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import re
 import socket
+from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -38,6 +39,10 @@ LIGHT_NAME_HINTS = ("luz", "light", "lamp", "led", "ilumina")
 AC_NAME_HINTS = ("ar", "air", "ac", "clima", "consul", "split")
 SHOW_KINDS_DEFAULT = {"light", "ac", "switch", "ir", "sensor", "gateway", "ir_hub", "meter"}
 METER_NAME_HINTS = ("meter", "medidor", "solar wifi dual")
+
+# DPs do ar-condicionado virtual (hub IR). Valores vêm como string enum.
+AC_MODE_LABELS = {"0": "Refrigerar", "1": "Aquecer", "2": "Automático", "3": "Ventilar", "4": "Desumidificar"}
+AC_FAN_LABELS = {"0": "Automático", "1": "Baixa", "2": "Média", "3": "Alta"}
 
 
 def _matches_word(name: str, hints: tuple[str, ...]) -> bool:
@@ -317,6 +322,54 @@ def _build_readings(status: dict[str, Any], entry: dict[str, Any], kind: str) ->
     return readings
 
 
+def _remote_keys(entry: dict[str, Any]) -> dict[str, Any]:
+    remote = entry.get("remote")
+    keys = remote.get("keys") if isinstance(remote, dict) else None
+    return keys if isinstance(keys, dict) else {}
+
+
+def power_keys_for(entry: dict[str, Any]) -> tuple[str, str, bool]:
+    """Retorna (tecla_ligar, tecla_desligar, is_toggle) do controle IR."""
+    keys = _remote_keys(entry)
+    on_key = keys.get("power_on")
+    off_key = keys.get("power_off")
+    if on_key and off_key:
+        return str(on_key), str(off_key), False
+    toggle = keys.get("power")
+    if toggle:
+        return str(toggle), str(toggle), True
+    return "PowerOn", "PowerOff", False
+
+
+def _ac_readings(status: dict[str, Any]) -> dict[str, Any]:
+    """Estado do ar lido dos DPs do device virtual (mode/fan vêm como enum string)."""
+    mode = status.get("mode")
+    fan = status.get("fan")
+    readings: dict[str, Any] = {}
+    if mode is not None:
+        readings["mode"] = {
+            "code": "mode",
+            "value": AC_MODE_LABELS.get(str(mode), str(mode)),
+            "unit": "",
+            "raw": mode,
+        }
+    if fan is not None:
+        readings["fan"] = {
+            "code": "fan",
+            "value": AC_FAN_LABELS.get(str(fan), str(fan)),
+            "unit": "",
+            "raw": fan,
+        }
+    if isinstance(status.get("swing"), bool):
+        readings["swing"] = {
+            "code": "swing",
+            "value": "Ligado" if status["swing"] else "Desligado",
+            "unit": "",
+            "raw": status["swing"],
+        }
+    return readings
+
+
 def _safe_controls(status: dict[str, Any], entry: dict[str, Any], kind: str) -> list[dict[str, Any]]:
     forbidden = set(entry.get("forbidden") or [])
     controls: list[dict[str, Any]] = []
@@ -373,13 +426,36 @@ def _build_home_device(cloud: tinytuya.Cloud, device: dict[str, Any]) -> dict[st
     elif "power" in smap:
         on = bool(smap["power"])
 
-    temp = smap.get("temp") or smap.get("T") or smap.get("temp_set") or smap.get("temp_current")
+    raw_temp = next(
+        (
+            smap[code]
+            for code in ("temperature", "temp", "T", "temp_set", "temp_current")
+            if smap.get(code) is not None
+        ),
+        None,
+    )
     try:
-        temp = int(temp) if temp is not None else None
+        temp = int(float(raw_temp)) if raw_temp is not None else None
     except (TypeError, ValueError):
         temp = None
 
     readings = _build_readings(smap, entry, kind)
+
+    power_mode = None
+    if kind in {"ac", "ir"} or entry.get("control") == "ir_hub":
+        _, _, is_toggle = power_keys_for(entry)
+        power_mode = "toggle" if is_toggle else "onoff"
+
+    if kind == "ac":
+        # O device virtual do hub IR guarda o estado em switch_power/temperature
+        if isinstance(smap.get("switch_power"), bool):
+            on = smap["switch_power"]
+        channels = []
+        readings = {**_ac_readings(smap), **readings}
+    elif kind == "ir":
+        # Controle IR puro: sem realimentação de estado (via infravermelho)
+        channels = []
+
     if kind == "sensor" and readings.get("temperature", {}).get("value") is not None and temp is None:
         try:
             temp = int(round(float(readings["temperature"]["value"])))
@@ -401,7 +477,8 @@ def _build_home_device(cloud: tinytuya.Cloud, device: dict[str, Any]) -> dict[st
         "online": online,
         "on": on,
         "temp": temp,
-        "switch_code": sw_code,
+        "power_mode": power_mode,
+        "switch_code": None if kind in {"ac", "ir"} else sw_code,
         "channels": channels,
         "readings": readings,
         "controls": _safe_controls(smap, entry, kind),
@@ -509,8 +586,8 @@ def get_home_device(device_id: str) -> dict[str, Any] | None:
 
 def list_home_devices(include_other: bool = False) -> list[dict[str, Any]]:
     cloud = get_cloud()
-    devices: list[dict[str, Any]] = []
 
+    visible: list[dict[str, Any]] = []
     for raw_device in _cloud_devices(cloud):
         name = (raw_device.get("name") or "").strip()
         category = raw_device.get("category") or ""
@@ -525,9 +602,19 @@ def list_home_devices(include_other: bool = False) -> list[dict[str, Any]]:
             continue
         if not include_other and not show:
             continue
-        device = _build_home_device(cloud, raw_device)
-        if device:
-            devices.append(device)
+        visible.append(raw_device)
+
+    # Cada device exige 1+ chamada de status; em série a lista levava ~40s no celular.
+    def build(raw: dict[str, Any]) -> dict[str, Any] | None:
+        try:
+            return _build_home_device(cloud, raw)
+        except Exception:
+            return None
+
+    devices: list[dict[str, Any]] = []
+    if visible:
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            devices = [d for d in pool.map(build, visible) if d]
 
     order = {
         "light": 0,
@@ -652,7 +739,8 @@ def set_switch(device_id: str, on: bool, code: str | None = None) -> dict[str, A
             or ("PowerOn" in func_codes and "PowerOff" in func_codes)
         )
     ):
-        return send_ir_key(device_id, "PowerOn" if on else "PowerOff")
+        on_key, off_key, _toggle = power_keys_for(entry)
+        return send_ir_key(device_id, on_key if on else off_key)
 
     if "PowerOn" in func_codes and "PowerOff" in func_codes and not code:
         cmd = "PowerOn" if on else "PowerOff"
@@ -663,15 +751,21 @@ def set_switch(device_id: str, on: bool, code: str | None = None) -> dict[str, A
 
 
 def set_ac_power(device_id: str, on: bool) -> dict[str, Any]:
-    # Preferência: API IR do hub físico. Fallback: DP do device virtual.
-    resp = send_ir_key(device_id, "PowerOn" if on else "PowerOff")
+    # Preferência: API IR do hub físico (é ela que emite o infravermelho de verdade).
+    entry = catalog_entry(device_id)
+    on_key, off_key, _toggle = power_keys_for(entry)
+    resp = send_ir_key(device_id, on_key if on else off_key)
     if isinstance(resp, dict) and resp.get("success"):
         return resp
-    cmd = "PowerOn" if on else "PowerOff"
-    resp2 = send_commands(device_id, [{"code": cmd, "value": cmd}])
+    # Fallback: DP do device virtual
+    resp2 = send_commands(device_id, [{"code": "switch_power", "value": bool(on)}])
     if isinstance(resp2, dict) and resp2.get("success"):
         return resp2
-    return resp if isinstance(resp, dict) else resp2
+    cmd = "PowerOn" if on else "PowerOff"
+    resp3 = send_commands(device_id, [{"code": cmd, "value": cmd}])
+    if isinstance(resp3, dict) and resp3.get("success"):
+        return resp3
+    return resp if isinstance(resp, dict) else resp3
 
 
 def set_ac_temp(device_id: str, temp: int) -> dict[str, Any]:
@@ -680,10 +774,9 @@ def set_ac_temp(device_id: str, temp: int) -> dict[str, Any]:
     resp = send_ir_key(device_id, f"T{temp}")
     if isinstance(resp, dict) and resp.get("success"):
         return resp
-    resp2 = send_commands(device_id, [{"code": "T", "value": temp}])
-    if isinstance(resp2, dict) and resp2.get("success"):
-        return resp2
-    resp3 = send_commands(device_id, [{"code": "temp", "value": temp}])
-    if isinstance(resp3, dict) and resp3.get("success"):
-        return resp3
-    return send_commands(device_id, [{"code": "temp_set", "value": temp}])
+    # Fallback: DP temperature do device virtual (o hub converte em IR)
+    for code in ("temperature", "temp", "temp_set", "T"):
+        alt = send_commands(device_id, [{"code": code, "value": temp}])
+        if isinstance(alt, dict) and alt.get("success"):
+            return alt
+    return resp if isinstance(resp, dict) else {"success": False, "msg": "Nenhum código de temperatura aceito"}

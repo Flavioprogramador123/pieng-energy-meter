@@ -3,6 +3,49 @@
 Todas as mudanças relevantes do projeto Energy Meter são registradas aqui.
 Formato livre, em português, por sessão de trabalho.
 
+## 2026-09-09 (madrugada, HOME) — Repaginação do painel web + correções que faltavam
+
+### Corrigido (backend)
+- **Ar-condicionado sem estado**: o card lia `temp`/`T`/`temp_set`, mas o device
+  virtual do hub IR guarda em **`temperature`** e **`switch_power`**. Agora o ar
+  mostra temperatura real, ligado/desligado, além de **modo**, **vento** e
+  **swing** (`mode`/`fan`/`swing`, traduzidos de enum para texto).
+- **Tecla de power do IR**: era sempre `PowerOn`/`PowerOff`. Agora vem do
+  catálogo (`remote.keys`). A **TV Samsung usa `Power` (toggle)** e o ar usa
+  `PowerOn`/`PowerOff`. Novo campo `power_mode` (`toggle`/`onoff`) no payload.
+- **`set_ac_temp`**: fallback passou a usar o DP real `temperature`.
+- **Lista lenta**: os status eram lidos em série (≈43 s para 25 aparelhos).
+  Agora em paralelo (`ThreadPoolExecutor`, 8 threads) → **≈11 s**.
+- Controles IR não expõem mais canal falso `switch_1`.
+
+### Redesign da interface (`/home`)
+- Tema escuro vibrante com aurora de fundo, cards translúcidos e **borda/brilho
+  neon na cor do tipo** quando o aparelho está ligado (luz âmbar, tomada verde,
+  ar violeta, medidor amarelo, sensor turquesa).
+- **Ícones SVG** por tipo e por nome: lâmpada, interruptor, tomada, ar, TV,
+  controle, medidor, termômetro, gateway, portão de garagem, bomba, alarme.
+- **Toggle grande de um toque** (56 px) no lugar dos dois botões, com estado
+  escrito (LIGADO/DESLIGADO) — o desenho nunca é a única indicação.
+- Ar com termostato: −/+ de 56 px, temperatura em destaque e chips de modo/vento.
+- TV/IR com botão **Power** único quando a tecla é toggle, e aviso de que
+  infravermelho não devolve estado.
+- Barra de resumo: total, online, offline e quantos estão ligados.
+- Offline: card dessaturado, selo OFFLINE e **todos os controles desabilitados**.
+- Filtros novos (TV/IR), skeleton de carregamento e alvos de toque ≥ 48 px.
+
+### Validado ao vivo (hardware real)
+- Ar Consul: `T25` chegou pelo hub IR; `PowerOff` desligou e o estado voltou
+  para `on=false`.
+- luz da varanda (3 teclas): ligou e desligou pela interface, com confirmação
+  relida da Tuya.
+- Aubess offline: API recusa com `Dispositivo offline`.
+- Sensor: 24,7 °C / 53,2 % / bateria 21 %.
+
+### Operação
+- Havia **dois uvicorn** ativos (8000 coletando, 8001 com reload travado
+  servindo código velho). O de :8001 foi reiniciado com
+  `--reload-dir app --reload-dir home`; o coletor de :8000 não foi tocado.
+
 ## 2026-09-09 (noite, HOME) — Direção visual: painel vibrante para celular/tablet
 
 ### Decisão (a evoluir)

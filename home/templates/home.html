@@ -2,11 +2,15 @@
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
-  <meta name="theme-color" content="#0b1220" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#05070f" />
   <title>PIENG HOME</title>
-  <link rel="stylesheet" href="/home/static/home.css?v=7" />
+  <link rel="icon" href="/static/favicon.png" />
+  <link rel="apple-touch-icon" href="/static/favicon.png" />
+  <link rel="stylesheet" href="/home/static/home.css?v=8" />
 </head>
 <body>
   <header class="top">
@@ -16,29 +20,32 @@
     </div>
     <div class="top-actions">
       <button id="btnRefresh" class="ghost" type="button">Atualizar</button>
-      <a class="ghost link" href="/api/dashboard">Energy</a>
+      <a class="ghost" href="/api/dashboard">Energy</a>
     </div>
   </header>
 
-  <section class="toolbar">
+  <section id="summary" class="summary"></section>
+
+  <nav class="toolbar">
     <div class="tabs" role="tablist">
       <button class="tab active" data-filter="all" type="button">Todos</button>
       <button class="tab" data-filter="light" type="button">Luzes</button>
+      <button class="tab" data-filter="switch" type="button">Interruptores</button>
       <button class="tab" data-filter="ac" type="button">Ar</button>
-      <button class="tab" data-filter="switch" type="button">Tomadas</button>
+      <button class="tab" data-filter="ir" type="button">TV / IR</button>
       <button class="tab" data-filter="meter" type="button">Medidores</button>
       <button class="tab" data-filter="sensor" type="button">Sensores</button>
       <button class="tab" data-filter="gateway" type="button">Gateway</button>
     </div>
-  </section>
+  </nav>
 
   <div id="statusBar" class="status-bar" hidden></div>
   <main id="deviceGrid" class="grid" aria-live="polite"></main>
 
   <footer class="foot">
-    Controle Tuya · catálogo em home/device_catalog.json · módulo separado do Energy Meter
+    Dados reais da conta Tuya · catálogo em <code>home/device_catalog.json</code>
   </footer>
 
-  <script src="/home/static/home.js?v=7"></script>
+  <script src="/home/static/home.js?v=8"></script>
 </body>
 </html>

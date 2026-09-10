@@ -15,6 +15,18 @@ Foco: celular / tablet — luzes, interruptores, ar, sensores e gateway.
 - AC power: POST /home/api/devices/{id}/ac/power  `{ "on": true }`
 - AC temp: POST /home/api/devices/{id}/ac/temp  `{ "temp": 24 }`
 
+## Estado dos aparelhos
+
+- `online` vem de `/v2.0/cloud/thing/batch` (`is_online`) — `getdevices` não traz.
+  Offline aparece marcado e com os controles desabilitados; a API também recusa.
+- Ar-condicionado virtual guarda o estado em **`switch_power`** e
+  **`temperature`** (não em `temp`), mais `mode`/`fan`/`swing`.
+- `power_mode` diz como é a tecla de energia do controle IR:
+  `onoff` (PowerOn/PowerOff, ex.: ar) ou `toggle` (uma tecla só, ex.: TV Samsung).
+  As teclas saem de `remote.keys` no catálogo.
+- Enviar temperatura para o ar **liga** o aparelho (comportamento do controle IR).
+- A leitura de status roda em paralelo (8 threads): ~11 s para 25 aparelhos.
+
 ## Conhecimento dos devices
 
 Arquivo canônico: `home/device_catalog.json`

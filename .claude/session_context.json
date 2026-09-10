@@ -34,7 +34,8 @@
     }
   },
   "home_ui_direction": {
-    "status": "em avaliacao - testar varios frameworks antes de fixar",
+    "status": "web /home JA repaginado e funcional (2026-09-10 madrugada); Flutter/React+Babylon continuam como proximos testes",
+    "feito_no_web": "tema escuro vibrante, icones SVG por tipo, toggle de 1 toque, brilho neon quando ligado, termostato do ar, resumo online/offline, offline desabilitado",
     "problema": "Visual atual de /home e fraco para uso real em celular/tablet; falta identidade tecnologica, cor vibrante e icones que remetam a luz/interruptor/portao/TV.",
     "alvo_futuro": "React + TypeScript + Babylon.js + Framer Motion + Tailwind, PWA em modo kiosk no tablet.",
     "passo_de_hoje": "Ir pelo simples: prototipo em Flutter.",
@@ -54,6 +55,11 @@
     "ir_virtual": "controles IR herdam disponibilidade do hub fisico 04708305d8bfc017c02e",
     "ultimo_teste": "25 devices - 15 online / 10 offline",
     "regra": "device offline aparece marcado e com comandos desabilitados"
+  },
+  "home_dp_notes": {
+    "ac_virtual": "estado em switch_power + temperature (NAO em temp/T); mode/fan sao enum string; mandar temperatura LIGA o ar",
+    "ir_power_key": "vem de remote.keys no catalogo: ar = PowerOn/PowerOff, TV Samsung = Power (toggle). Campo power_mode no payload.",
+    "performance": "list_home_devices usa ThreadPoolExecutor(8): ~11s para 25 aparelhos (era ~43s em serie)"
   },
   "pending_next_steps": [
     "HOME visual: prototipar em Flutter e comparar com React+Babylon antes de fixar stack",
