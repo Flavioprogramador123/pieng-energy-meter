@@ -3,6 +3,39 @@
 Todas as mudanças relevantes do projeto Energy Meter são registradas aqui.
 Formato livre, em português, por sessão de trabalho.
 
+## 2026-09-09 (noite, HOME) — Direção visual: painel vibrante para celular/tablet
+
+### Decisão (a evoluir)
+- Visual atual do `/home` é **fraco** para o uso real (celular/tablet, no dedo).
+  Meta: fundo escuro, cores vibrantes, cartões translúcidos, ícones que remetem
+  ao objeto real (luz, interruptor, portão, TV), animações de 300–700 ms.
+- Alvo futuro: **React + TypeScript + Babylon.js + Framer Motion + Tailwind**,
+  rodando como **PWA em modo kiosk** no tablet.
+- **Hoje vamos pelo simples: protótipo em Flutter**, testando vários frameworks
+  antes de fixar a escolha. React+Babylon fica como próxima etapa.
+- Ajuste em relação à referência pesquisada: ela assume **Home Assistant** e a
+  WebSocket API dele. Aqui **não usamos Home Assistant** — a fonte de verdade é
+  o próprio `/home/api/*` do FastAPI (e, se precisar de tempo real, um
+  WebSocket nosso).
+- Invariantes de qualquer protótipo: ação principal em 1 toque, botão grande,
+  estado sempre visível (ligado/desligado/indisponível), modo simples de
+  fallback, e o desenho **nunca** é a única indicação de estado.
+
+Detalhamento completo: `docs/HOME_UI_STACK.md`.
+
+## 2026-09-09 (noite, HOME) — Status ONLINE/OFFLINE por device
+
+### Adicionado
+- `getdevices` não traz `online`; agora a listagem enriquece via
+  `GET /v2.0/cloud/thing/batch` (`is_online`), em lotes de 20.
+- Controles virtuais IR (ar/TV) herdam a disponibilidade do **hub físico**.
+- `get_home_device` consulta `/v2.0/cloud/thing/{id}` e cai no gateway quando o
+  virtual aparece offline.
+- `set_switch` recusa comando para device offline sem gateway.
+- UI: badge ONLINE/OFFLINE, card esmaecido, botões desabilitados e barra de
+  status `N devices · X online · Y offline`.
+- Estado no momento do teste: **25 devices — 15 online, 10 offline**.
+
 ## 2026-09-09 (noite, HOME) — Catálogo por category + product name
 
 ### Decisão
