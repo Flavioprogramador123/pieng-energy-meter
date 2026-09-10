@@ -1,0 +1,622 @@
+{
+  "version": 2,
+  "updated": "2026-09-09",
+  "notes": "Hierarquia: category → product (nome do produto Tuya) → device_id. A maioria se REPETE por category+product; device só guarda nome amigável e exceções. Nunca expor factory_reset.",
+  "products": {
+    "Interruptor touch novadigital": {
+      "category": "kg",
+      "kind": "switch",
+      "card": "multi_switch",
+      "channels": [
+        { "code": "switch_1", "label": "Tecla 1" },
+        { "code": "switch_2", "label": "Tecla 2" },
+        { "code": "switch_3", "label": "Tecla 3" }
+      ],
+      "notes": "3 teclas Novadigital. Schema comum a frente/quintal/sala."
+    },
+    "WB03-NCD": {
+      "category": "kg",
+      "kind": "light",
+      "card": "multi_switch",
+      "channels": [
+        { "code": "switch_1", "label": "Tecla 1" },
+        { "code": "switch_2", "label": "Tecla 2" },
+        { "code": "switch_3", "label": "Tecla 3" }
+      ],
+      "dp_codes": {
+        "switch_1": { "type": "Boolean" },
+        "switch_2": { "type": "Boolean" },
+        "switch_3": { "type": "Boolean" },
+        "countdown_1": { "type": "Integer", "min": 0, "max": 86400, "unit": "s" },
+        "countdown_2": { "type": "Integer", "min": 0, "max": 86400, "unit": "s" },
+        "countdown_3": { "type": "Integer", "min": 0, "max": 86400, "unit": "s" },
+        "relay_status": { "type": "Enum", "range": ["power_off", "power_on", "last"] }
+      }
+    },
+    "Aubess Smart Switch 1-gang": {
+      "category": "tdq",
+      "kind": "switch",
+      "card": "multi_switch",
+      "channels": [{ "code": "switch_1", "label": "Tecla 1" }],
+      "dp_codes": {
+        "switch_1": { "type": "Boolean" },
+        "countdown_1": { "type": "Integer", "min": 0, "max": 86400, "unit": "s" },
+        "relay_status": { "type": "Enum", "range": ["0", "1", "2"] },
+        "switch_type": { "type": "Enum", "range": ["flip", "sync", "button"] }
+      }
+    },
+    "INTERRUPTOR WIFI + RF433": {
+      "category": "tdq",
+      "kind": "switch",
+      "card": "multi_switch",
+      "channels": [{ "code": "switch_1", "label": "Tecla 1" }],
+      "dp_codes": {
+        "switch_1": { "type": "Boolean" },
+        "countdown_1": { "type": "Integer", "min": 0, "max": 86400, "unit": "s" },
+        "relay_status": { "type": "Enum", "range": ["0", "1", "2"] },
+        "switch_type": { "type": "Enum", "range": ["flip", "sync", "button"] },
+        "remote_add": { "type": "Raw" },
+        "remote_list": { "type": "Raw" }
+      }
+    },
+    "PC473_OUYOU": {
+      "category": "tdq",
+      "kind": "meter",
+      "card": "triphase_meter",
+      "status_source": "shadow"
+    },
+    "Solar WIFI dual meter": {
+      "category": "cz",
+      "kind": "meter",
+      "card": "dual_meter",
+      "status_source": "shadow"
+    },
+    "TC0000_W600_LIGHT5_RGBCW_P1": {
+      "category": "dj",
+      "kind": "light",
+      "card": "rgb_light",
+      "channels": [{ "code": "switch_led", "label": "Luz" }]
+    },
+    "电视": {
+      "category": "infrared_tv",
+      "kind": "ir",
+      "card": "ir_remote",
+      "control": "ir_hub"
+    },
+    "空调": {
+      "category": "infrared_ac",
+      "kind": "ac",
+      "card": "ac_ir",
+      "control": "ir_hub"
+    },
+    "QC-ZB-GW": {
+      "category": "wg2",
+      "kind": "gateway",
+      "card": "gateway",
+      "forbidden": ["factory_reset"]
+    }
+  },
+  "categories": {
+    "kg": {
+      "kind": "switch",
+      "card": "multi_switch",
+      "label": "Interruptor",
+      "show_by_default": true,
+      "channel_codes": ["switch_1", "switch_2", "switch_3"],
+      "notes": "Novadigital touch 3 teclas: cada switch_N é um circuito independente. Standard Instruction OK."
+    },
+    "tdq": {
+      "kind": "switch",
+      "card": "multi_switch",
+      "label": "Disjuntor/Relé",
+      "show_by_default": true,
+      "channel_codes": ["switch_1"],
+      "notes": "Pode ser medidor trifásico (PC473 / Energy) OU relé simples (luz piscina/portão). Preferir override por device_id."
+    },
+    "cz": {
+      "kind": "switch",
+      "card": "multi_switch",
+      "label": "Tomada",
+      "show_by_default": true,
+      "channel_codes": ["switch_1"]
+    },
+    "pc": {
+      "kind": "switch",
+      "card": "multi_switch",
+      "label": "Plug",
+      "show_by_default": true,
+      "channel_codes": ["switch_1"]
+    },
+    "dj": {
+      "kind": "light",
+      "card": "multi_switch",
+      "label": "Luz",
+      "show_by_default": true,
+      "channel_codes": ["switch_led", "switch_1"]
+    },
+    "infrared_ac": {
+      "kind": "ac",
+      "card": "ac_ir",
+      "label": "Ar-condicionado",
+      "show_by_default": true,
+      "control": "ir_hub",
+      "keys": ["PowerOn", "PowerOff", "T16-T30", "M0-M4", "F0-F3"],
+      "notes": "Device virtual. Comando físico via /v2.0/infrareds/{hub}/remotes/{remote}/command. Exige IR Control Hub Open Service."
+    },
+    "kt": {
+      "kind": "ac",
+      "card": "ac_ir",
+      "label": "Ar-condicionado",
+      "show_by_default": true,
+      "control": "ir_hub"
+    },
+    "infrared_tv": {
+      "kind": "ir",
+      "card": "ir_remote",
+      "label": "TV IR",
+      "show_by_default": true,
+      "control": "ir_hub"
+    },
+    "infrared_light": {
+      "kind": "ir",
+      "card": "ir_remote",
+      "label": "Luz IR",
+      "show_by_default": true,
+      "control": "ir_hub"
+    },
+    "wsdcg": {
+      "kind": "sensor",
+      "card": "climate_sensor",
+      "label": "Sensor clima",
+      "show_by_default": true,
+      "metrics": {
+        "temperature": { "code": "va_temperature", "scale": 1, "unit": "°C" },
+        "humidity": { "code": "va_humidity", "scale": 1, "unit": "%" },
+        "battery": { "code": "battery_percentage", "scale": 0, "unit": "%" }
+      },
+      "settings": ["temp_unit_convert", "maxtemp_set", "minitemp_set", "maxhum_set", "minihum_set"],
+      "optional_switch": { "code": "switch", "label": "Recurso do sensor" },
+      "notes": "switch NÃO é luz — recurso interno do sensor."
+    },
+    "wg2": {
+      "kind": "gateway",
+      "card": "gateway",
+      "label": "Gateway Zigbee",
+      "show_by_default": true,
+      "metrics": {
+        "master_state": { "code": "master_state" },
+        "alarm_active": { "code": "alarm_active" }
+      },
+      "safe_controls": [
+        { "code": "switch_alarm_sound", "label": "Som do alarme", "type": "boolean" }
+      ],
+      "forbidden": ["factory_reset"],
+      "notes": "QC-ZB-GW. Hub Zigbee. Nunca expor factory_reset."
+    },
+    "wnykq": {
+      "kind": "ir_hub",
+      "card": "ir_hub",
+      "label": "Hub IR",
+      "show_by_default": true,
+      "notes": "Emissor físico (ex.: Controle ekaza). Remotes virtuais usam gateway_id apontando para este device."
+    },
+    "dual_meter": {
+      "kind": "meter",
+      "card": "dual_meter",
+      "label": "Medidor dual",
+      "show_by_default": true,
+      "status_source": "shadow",
+      "notes": "Categoria Tuya pode ser cz, mas getstatus/getfunctions vêm vazios. Usar shadow/properties. Standard Instruction sem mapeamento (-)."
+    }
+  },
+  "devices": {
+    "eba5da7bcaca181936499z": {
+      "name": "Interruptor da frente",
+      "category": "kg",
+      "product": "Interruptor touch novadigital",
+      "kind": "switch",
+      "card": "multi_switch",
+      "channels": [
+        { "code": "switch_1", "label": "Tecla 1" },
+        { "code": "switch_2", "label": "Tecla 2" },
+        { "code": "switch_3", "label": "Tecla 3" }
+      ]
+    },
+    "eb5a1f91b343c565846oqi": {
+      "name": "interruptor do quintal",
+      "category": "kg",
+      "product": "Interruptor touch novadigital",
+      "kind": "switch",
+      "card": "multi_switch",
+      "channels": [
+        { "code": "switch_1", "label": "Tecla 1" },
+        { "code": "switch_2", "label": "Tecla 2" },
+        { "code": "switch_3", "label": "Tecla 3" }
+      ]
+    },
+    "ebdd111cd1fc767c0fbyta": {
+      "name": "interruptor da sala",
+      "category": "kg",
+      "kind": "switch",
+      "card": "multi_switch",
+      "channels": [
+        { "code": "switch_1", "label": "Tecla 1" },
+        { "code": "switch_2", "label": "Tecla 2" },
+        { "code": "switch_3", "label": "Tecla 3" }
+      ]
+    },
+    "eb70f50b42d62534a1wnhe": {
+      "name": "luz da varanda",
+      "product": "WB03-NCD",
+      "category": "kg",
+      "kind": "light",
+      "card": "multi_switch",
+      "show_by_default": true,
+      "notes": "Interruptor 3 teclas WB03-NCD. relay_status: power_off/power_on/last (diferente do tdq 0/1/2).",
+      "channels": [
+        { "code": "switch_1", "label": "Tecla 1" },
+        { "code": "switch_2", "label": "Tecla 2" },
+        { "code": "switch_3", "label": "Tecla 3" }
+      ],
+      "dp_codes": {
+        "switch_1": { "type": "Boolean" },
+        "switch_2": { "type": "Boolean" },
+        "switch_3": { "type": "Boolean" },
+        "countdown_1": { "type": "Integer", "min": 0, "max": 86400, "unit": "s" },
+        "countdown_2": { "type": "Integer", "min": 0, "max": 86400, "unit": "s" },
+        "countdown_3": { "type": "Integer", "min": 0, "max": 86400, "unit": "s" },
+        "relay_status": { "type": "Enum", "range": ["power_off", "power_on", "last"] },
+        "cycle_time": { "type": "String" },
+        "random_time": { "type": "String" },
+        "switch_inching": { "type": "String" }
+      }
+    },
+    "eba95b9eb6148913barqeb": {
+      "name": "luz da piscina",
+      "category": "tdq",
+      "kind": "light",
+      "card": "multi_switch",
+      "channels": [{ "code": "switch_1", "label": "Luz" }]
+    },
+    "ebb156318969d8d865tuky": {
+      "name": "Ar consul",
+      "category": "infrared_ac",
+      "product": "空调",
+      "kind": "ac",
+      "card": "ac_ir",
+      "control": "ir_hub",
+      "gateway_id": "04708305d8bfc017c02e",
+      "remote": {
+        "category_id": 5,
+        "remote_index": 11797,
+        "brand_name": "Consul",
+        "keys": {
+          "power_on": "PowerOn",
+          "power_off": "PowerOff",
+          "temp": "T{temp}",
+          "mode": "M",
+          "fan": "F"
+        }
+      },
+      "validated": {
+        "power_off_physical": true,
+        "date": "2026-09-09"
+      }
+    },
+    "04708305d8bfc017c02e": {
+      "name": "Controle ekaza",
+      "category": "wnykq",
+      "kind": "ir_hub",
+      "card": "ir_hub",
+      "notes": "Hub IR físico do Ar Consul / TVs."
+    },
+    "eb9566f34c86a5f2211xsj": {
+      "name": "Temperature Humidity Sensor 2",
+      "category": "wsdcg",
+      "kind": "sensor",
+      "card": "climate_sensor",
+      "metrics": {
+        "temperature": { "code": "va_temperature", "scale": 1, "unit": "°C" },
+        "humidity": { "code": "va_humidity", "scale": 1, "unit": "%" },
+        "battery": { "code": "battery_percentage", "scale": 0, "unit": "%" }
+      },
+      "settings": {
+        "temp_unit_convert": { "type": "enum", "range": ["c", "f"] },
+        "maxtemp_set": { "type": "integer", "min": -10, "max": 60, "unit": "°C" },
+        "minitemp_set": { "type": "integer", "min": -10, "max": 60, "unit": "°C" },
+        "maxhum_set": { "type": "integer", "min": 0, "max": 100, "unit": "%" },
+        "minihum_set": { "type": "integer", "min": 0, "max": 100, "unit": "%" }
+      },
+      "optional_switch": { "code": "switch", "label": "Recurso do sensor" }
+    },
+    "eb0c341d9937c0724av8b4": {
+      "name": "Gateway",
+      "product": "QC-ZB-GW",
+      "category": "wg2",
+      "kind": "gateway",
+      "card": "gateway",
+      "safe_controls": [
+        { "code": "switch_alarm_sound", "label": "Som do alarme", "type": "boolean" }
+      ],
+      "status_codes": ["master_state", "alarm_active"],
+      "forbidden": ["factory_reset"]
+    },
+    "eb12907d3f923984f1wntb": {
+      "name": "Solar WIFI dual meter",
+      "category": "cz",
+      "kind": "meter",
+      "card": "dual_meter",
+      "product": "Solar WIFI dual meter",
+      "status_source": "shadow",
+      "show_by_default": true,
+      "notes": "getstatus/functions vazios. Instrução padrão sem mapeamento (-). DPs reais via shadow. Typos oficiais Tuya: energy_forword_*, energy_reserse_b.",
+      "dp_codes": [
+        "power_a", "direction_a", "direction_b", "power_b",
+        "energy_forword_a", "energy_reverse_a", "energy_forword_b", "energy_reserse_b",
+        "power_factor", "freq", "voltage_a", "current_a", "current_b", "total_power",
+        "forward_energy_total", "reverse_energy_total",
+        "buz_enable", "ov_enable", "uv_enable", "oc_enable", "op_enable",
+        "ov_threshold", "uv_threshold", "oc_threshold", "op_threshold",
+        "ov_status", "uv_status", "oc_status", "op_status",
+        "oc_threshold_b", "op_threshold_b", "oc_status_b", "op_status_b",
+        "oc_enable_b", "op_enable_b",
+        "voltage_coef", "current_a_calibration", "power_a_calibration",
+        "energy_a_calibration_fwd", "coef_a_reset", "power_factor_b",
+        "freq_calibration", "current_b_calibration", "power_b_calibration",
+        "energy_b_calibration_fwd", "coef_b_reset",
+        "energy_a_calibration_rev", "energy_b_calibration_rev",
+        "report_rate_control"
+      ],
+      "forbidden": ["coef_a_reset", "coef_b_reset"],
+      "metrics": {
+        "voltage": { "code": "voltage_a", "scale": 1, "unit": "V" },
+        "frequency": { "code": "freq", "scale": 2, "unit": "Hz" },
+        "power_a": { "code": "power_a", "scale": 0, "unit": "W" },
+        "power_b": { "code": "power_b", "scale": 0, "unit": "W" },
+        "total_power": { "code": "total_power", "scale": 0, "unit": "W" },
+        "current_a": { "code": "current_a", "scale": 3, "unit": "A" },
+        "current_b": { "code": "current_b", "scale": 3, "unit": "A" },
+        "power_factor_a": { "code": "power_factor", "scale": 2, "unit": "" },
+        "power_factor_b": { "code": "power_factor_b", "scale": 2, "unit": "" },
+        "energy_fwd_a": { "code": "energy_forword_a", "scale": 2, "unit": "kWh" },
+        "energy_rev_a": { "code": "energy_reverse_a", "scale": 2, "unit": "kWh" },
+        "energy_fwd_b": { "code": "energy_forword_b", "scale": 2, "unit": "kWh" },
+        "energy_rev_b": { "code": "energy_reserse_b", "scale": 2, "unit": "kWh" },
+        "energy_import_total": { "code": "forward_energy_total", "scale": 2, "unit": "kWh" },
+        "energy_export_total": { "code": "reverse_energy_total", "scale": 2, "unit": "kWh" }
+      },
+      "status_codes": ["direction_a", "direction_b", "ov_status", "uv_status", "oc_status", "op_status"],
+      "validated": {
+        "shadow_read": true,
+        "date": "2026-09-09",
+        "sample": {
+          "voltage_a_raw": 2300,
+          "freq_raw": 5898,
+          "energy_forword_a_raw": 1790,
+          "direction_a": "FORWARD"
+        }
+      }
+    },
+    "eb9a1c787c60d712fazces": {
+      "name": "PC473_OUYOU",
+      "alias": "medidorCASA",
+      "category": "tdq",
+      "product": "PC473_OUYOU",
+      "kind": "meter",
+      "card": "triphase_meter",
+      "status_source": "shadow",
+      "show_by_default": true,
+      "notes": "Disjuntor trifásico inteligente. getstatus só devolve switch_1/fault/relay_status; métricas via shadow. Mesmo device do Energy Meter (coleta real).",
+      "dp_codes": [
+        "switch_1", "fault", "relay_status",
+        "voltage_a", "current_a", "active_power_a", "power_factor_a", "forward_energy_a", "reverse_energy_a",
+        "voltage_b", "current_b", "active_power_b", "power_factor_b", "forward_energy_b", "reverse_energy_b",
+        "voltage_c", "current_c", "active_power_c", "power_factor_c", "forward_energy_c", "reverse_energy_c",
+        "forward_energy_total", "current_total", "active_power_total", "frequency", "device_status",
+        "reverse_energy_total",
+        "ov_pwr_val_a", "ov_pwr_val_b", "ov_pwr_val_c",
+        "ov_pwr_en_a", "ov_pwr_en_b", "ov_pwr_en_c"
+      ],
+      "safe_controls": [
+        { "code": "switch_1", "label": "Relé / disjuntor", "type": "boolean" }
+      ],
+      "metrics": {
+        "voltage_a": { "code": "voltage_a", "scale": 1, "unit": "V" },
+        "voltage_b": { "code": "voltage_b", "scale": 1, "unit": "V" },
+        "voltage_c": { "code": "voltage_c", "scale": 1, "unit": "V" },
+        "current_a": { "code": "current_a", "scale": 3, "unit": "A" },
+        "current_b": { "code": "current_b", "scale": 3, "unit": "A" },
+        "current_c": { "code": "current_c", "scale": 3, "unit": "A" },
+        "power_a": { "code": "active_power_a", "scale": 0, "unit": "W" },
+        "power_b": { "code": "active_power_b", "scale": 0, "unit": "W" },
+        "power_c": { "code": "active_power_c", "scale": 0, "unit": "W" },
+        "total_power": { "code": "active_power_total", "scale": 0, "unit": "W" },
+        "power_factor_a": { "code": "power_factor_a", "scale": 2, "unit": "" },
+        "power_factor_b": { "code": "power_factor_b", "scale": 2, "unit": "" },
+        "power_factor_c": { "code": "power_factor_c", "scale": 2, "unit": "" },
+        "energy_import_a": { "code": "forward_energy_a", "scale": 2, "unit": "kWh" },
+        "energy_export_a": { "code": "reverse_energy_a", "scale": 2, "unit": "kWh" },
+        "energy_import_b": { "code": "forward_energy_b", "scale": 2, "unit": "kWh" },
+        "energy_export_b": { "code": "reverse_energy_b", "scale": 2, "unit": "kWh" },
+        "energy_import_c": { "code": "forward_energy_c", "scale": 2, "unit": "kWh" },
+        "energy_export_c": { "code": "reverse_energy_c", "scale": 2, "unit": "kWh" },
+        "energy_import_total": { "code": "forward_energy_total", "scale": 2, "unit": "kWh" },
+        "energy_export_total": { "code": "reverse_energy_total", "scale": 2, "unit": "kWh" },
+        "frequency": { "code": "frequency", "scale": 0, "unit": "Hz" }
+      },
+      "status_codes": ["fault", "relay_status", "device_status"],
+      "validated": {
+        "shadow_read": true,
+        "date": "2026-09-09",
+        "sample": {
+          "voltage_a_raw": 2289,
+          "active_power_total": 1503,
+          "frequency": 60,
+          "switch_1": true
+        }
+      }
+    },
+    "eb5946695d88af3469ribh": {
+      "name": "Aubess Smart Switch 1-gang",
+      "product": "Aubess Smart Switch 1-gang",
+      "category": "tdq",
+      "kind": "switch",
+      "card": "multi_switch",
+      "show_by_default": true,
+      "notes": "Relé 1 canal. Offline em 2026-09-09. Não confundir com PC473 (mesmo category tdq).",
+      "channels": [
+        { "code": "switch_1", "label": "Tecla 1" }
+      ],
+      "dp_codes": {
+        "switch_1": { "type": "Boolean" },
+        "countdown_1": { "type": "Integer", "min": 0, "max": 86400, "unit": "s" },
+        "relay_status": { "type": "Enum", "range": ["0", "1", "2"] },
+        "random_time": { "type": "String", "maxlen": 255 },
+        "cycle_time": { "type": "String", "maxlen": 255 },
+        "switch_inching": { "type": "String", "maxlen": 255 },
+        "switch_type": { "type": "Enum", "range": ["flip", "sync", "button"] }
+      },
+      "status": "offline",
+      "activated_at": "2023-02-19 19:21:39",
+      "validated": {
+        "dp_schema_from_user": true,
+        "date": "2026-09-09"
+      }
+    },
+    "eb61a0c15929a64a0dilbh": {
+      "name": "portão da garagem",
+      "product": "INTERRUPTOR WIFI + RF433",
+      "category": "tdq",
+      "kind": "switch",
+      "card": "multi_switch",
+      "show_by_default": true,
+      "notes": "Relé 1 canal com RF433. Nome na conta: portão da garagem. Tem remote_add/remote_list para parear controles RF. Não é medidor trifásico.",
+      "channels": [
+        { "code": "switch_1", "label": "Tecla 1" }
+      ],
+      "dp_codes": [
+        "switch_1",
+        "countdown_1",
+        "relay_status",
+        "random_time",
+        "cycle_time",
+        "switch_inching",
+        "switch_type",
+        "remote_add",
+        "remote_list"
+      ],
+      "settings": {
+        "countdown_1": { "type": "integer", "min": 0, "max": 86400, "unit": "s" },
+        "relay_status": { "type": "enum", "range": ["0", "1", "2"] },
+        "switch_type": { "type": "enum", "range": ["flip", "sync", "button"] },
+        "remote_add": { "type": "raw", "notes": "Parear controle RF433" },
+        "remote_list": { "type": "raw", "notes": "Lista de controles RF cadastrados" }
+      },
+      "validated": {
+        "status_read": true,
+        "date": "2026-09-09",
+        "sample": {
+          "switch_1": false,
+          "relay_status": "2",
+          "switch_type": "flip"
+        }
+      }
+    },
+    "eb1028824b950af6c6rthi": {
+      "name": "TC0000_W600_LIGHT5_RGBCW_P1",
+      "product": "TC0000_W600_LIGHT5_RGBCW_P1",
+      "category": "dj",
+      "kind": "light",
+      "card": "rgb_light",
+      "show_by_default": true,
+      "notes": "Lâmpada/fita RGBCW. Liga/desliga via switch_led. work_mode: white/colour/scene/music. Brilho e temperatura de cor 10..1000 / 0..1000.",
+      "channels": [
+        { "code": "switch_led", "label": "Luz" }
+      ],
+      "dp_codes": [
+        "switch_led",
+        "work_mode",
+        "bright_value_v2",
+        "temp_value_v2",
+        "colour_data_v2",
+        "scene_data_v2",
+        "music_data",
+        "control_data",
+        "countdown_1"
+      ],
+      "settings": {
+        "work_mode": { "type": "enum", "range": ["white", "colour", "scene", "music"] },
+        "bright_value_v2": { "type": "integer", "min": 10, "max": 1000 },
+        "temp_value_v2": { "type": "integer", "min": 0, "max": 1000 },
+        "colour_data_v2": { "type": "json", "h": [0, 360], "s": [0, 1000], "v": [0, 1000] },
+        "countdown_1": { "type": "integer", "min": 0, "max": 86400, "unit": "s" }
+      }
+    },
+    "ebdb589e70438d7223jryg": {
+      "name": "Tv Samsung",
+      "product": "电视",
+      "category": "infrared_tv",
+      "kind": "ir",
+      "card": "ir_remote",
+      "control": "ir_hub",
+      "show_by_default": true,
+      "gateway_id": "04708305d8bfc017c02e",
+      "notes": "Controle virtual IR da TV Samsung no hub Ekaza. UI Tuya pode mostrar category qt; API real = infrared_tv. Power é toggle STRING. C é ENUM inteiro 1..999 (canal direto).",
+      "remote": {
+        "category_id": 2,
+        "brand_name": "Samsung",
+        "remote_name": "Tv Samsung",
+        "keys": {
+          "power": "Power",
+          "volume_up": "Volume+",
+          "volume_down": "Volume-",
+          "channel_up": "Channel+",
+          "channel_down": "Channel-",
+          "ok": "OK",
+          "menu": "Menu",
+          "home": "Home",
+          "back": "Back",
+          "up": "Up",
+          "down": "Down",
+          "left": "Left",
+          "right": "Right",
+          "digit_dash": "-/--",
+          "clear": "C"
+        }
+      },
+      "dp_codes": {
+        "-/--": { "type": "STRING", "value": "-/--" },
+        "0": { "type": "STRING", "value": "0" },
+        "1": { "type": "STRING", "value": "1" },
+        "2": { "type": "STRING", "value": "2" },
+        "3": { "type": "STRING", "value": "3" },
+        "4": { "type": "STRING", "value": "4" },
+        "5": { "type": "STRING", "value": "5" },
+        "6": { "type": "STRING", "value": "6" },
+        "7": { "type": "STRING", "value": "7" },
+        "8": { "type": "STRING", "value": "8" },
+        "9": { "type": "STRING", "value": "9" },
+        "Back": { "type": "STRING", "value": "Back" },
+        "C": { "type": "ENUM", "min": 1, "max": 999, "step": 1, "notes": "canal direto" },
+        "Channel+": { "type": "STRING", "value": "Channel+" },
+        "Channel-": { "type": "STRING", "value": "Channel-" },
+        "Down": { "type": "STRING", "value": "Down" },
+        "Home": { "type": "STRING", "value": "Home" },
+        "Left": { "type": "STRING", "value": "Left" },
+        "Menu": { "type": "STRING", "value": "Menu" },
+        "OK": { "type": "STRING", "value": "OK" },
+        "Power": { "type": "STRING", "value": "Power" },
+        "Right": { "type": "STRING", "value": "Right" },
+        "Up": { "type": "STRING", "value": "Up" },
+        "Volume+": { "type": "STRING", "value": "Volume+" },
+        "Volume-": { "type": "STRING", "value": "Volume-" }
+      },
+      "activated_at": "2025-10-17 18:44:19",
+      "validated": {
+        "functions_read": true,
+        "dp_schema_from_user": true,
+        "date": "2026-09-09"
+      }
+    }
+  }
+}

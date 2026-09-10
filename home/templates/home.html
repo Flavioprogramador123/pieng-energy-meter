@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="theme-color" content="#0b1220" />
+  <title>PIENG HOME</title>
+  <link rel="stylesheet" href="/home/static/home.css?v=7" />
+</head>
+<body>
+  <header class="top">
+    <div>
+      <p class="eyebrow">PIENG</p>
+      <h1>HOME</h1>
+    </div>
+    <div class="top-actions">
+      <button id="btnRefresh" class="ghost" type="button">Atualizar</button>
+      <a class="ghost link" href="/api/dashboard">Energy</a>
+    </div>
+  </header>
+
+  <section class="toolbar">
+    <div class="tabs" role="tablist">
+      <button class="tab active" data-filter="all" type="button">Todos</button>
+      <button class="tab" data-filter="light" type="button">Luzes</button>
+      <button class="tab" data-filter="ac" type="button">Ar</button>
+      <button class="tab" data-filter="switch" type="button">Tomadas</button>
+      <button class="tab" data-filter="meter" type="button">Medidores</button>
+      <button class="tab" data-filter="sensor" type="button">Sensores</button>
+      <button class="tab" data-filter="gateway" type="button">Gateway</button>
+    </div>
+  </section>
+
+  <div id="statusBar" class="status-bar" hidden></div>
+  <main id="deviceGrid" class="grid" aria-live="polite"></main>
+
+  <footer class="foot">
+    Controle Tuya · catálogo em home/device_catalog.json · módulo separado do Energy Meter
+  </footer>
+
+  <script src="/home/static/home.js?v=7"></script>
+</body>
+</html>

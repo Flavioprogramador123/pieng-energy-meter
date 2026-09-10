@@ -26,6 +26,7 @@ def create_app() -> FastAPI:
 
     # templates e estáticos
     app.mount("/static", StaticFiles(directory="app/static"), name="static")
+    app.mount("/home/static", StaticFiles(directory="home/static"), name="home_static")
     app.state.templates = Jinja2Templates(directory="app/templates")
 
     @app.get("/")
@@ -33,6 +34,10 @@ def create_app() -> FastAPI:
         return {"status": "ok", "name": settings.app_name}
 
     app.include_router(get_api_router(), prefix=settings.api_prefix)
+
+    # Módulo HOME (controle residencial Tuya) — pasta /home, branch feature/home-module
+    from home.router import router as home_router
+    app.include_router(home_router, prefix="/home")
 
     scheduler = PollingScheduler(timezone=settings.scheduler_timezone)
 

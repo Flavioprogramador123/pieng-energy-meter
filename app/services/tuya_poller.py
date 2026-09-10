@@ -104,17 +104,26 @@ def fetch_tuya_status(cloud, tuya_device_id: str) -> Tuple[Optional[List], Optio
     return result, None
 
 
-def parse_tuya_data(device_id: str, status_result: List[Dict]) -> Dict[str, Any]:
+def parse_tuya_data(device_id: str, status_result: List[Dict], device_config: Optional[Dict] = None) -> Dict[str, Any]:
     """
     Converte dados Tuya em métricas padronizadas
-    
+
     Args:
         device_id: ID do dispositivo Tuya
         status_result: Lista de datapoints do status
-    
+        device_config: config do Device no banco (usado pelo medidor bidirecional
+            de 2 CTs - ver parse_dual_meter_data - para saber o papel de cada canal)
+
     Returns:
         Dict com métricas padronizadas
     """
+    # Medidor bidirecional de 2 entradas de TC ("dual meter"): esquema de DPs
+    # totalmente diferente (power_a/power_b, direction_a/direction_b, sem
+    # active_power_a nem voltage_b) - não é trifásico, é canal A/B independentes.
+    data_dict_probe = {item['code']: item['value'] for item in status_result}
+    if 'power_a' in data_dict_probe and 'direction_a' in data_dict_probe:
+        return parse_dual_meter_data(data_dict_probe, device_config or {})
+
     metrics = {}
     
     # Converter lista em dict
@@ -246,6 +255,84 @@ def parse_tuya_data(device_id: str, status_result: List[Dict]) -> Dict[str, Any]
     return metrics
 
 
+def parse_dual_meter_data(data_dict: Dict[str, Any], device_config: Dict) -> Dict[str, Any]:
+    """
+    Medidor bidirecional Tuya de 2 entradas de TC independentes (ex.: "WIFI dual
+    meter"). Cada CT (canal 'a'/'b') é fisicamente instalado num ponto diferente
+    da instalação - não são fases de um mesmo circuito trifásico. O que cada
+    canal está de fato medindo (injeção do inversor, consumo da carga, ou não
+    instalado) é uma decisão de instalação física, não algo que dá pra inferir
+    dos dados - por isso vem de `device_config["channel_roles"]`, ex.:
+
+        {"channel_roles": {"a": "injection", "b": "consumption"}}
+        {"channel_roles": {"a": "injection", "b": None}}   # CT-B não instalado
+
+    Canal sem role definida (ausente ou None) é ignorado por completo - não
+    registra métrica nenhuma para ele, porque um CT não instalado não está
+    medindo nada real (gravar zero seria dado fake).
+
+    Reaproveita os nomes de métrica power_export_total/power_import_total/
+    energy_exported_total/energy_imported_total (mesmos do medidor trifásico
+    "tdq") para que o card Rede/Solar do dashboard funcione sem mudança.
+    """
+    metrics: Dict[str, Any] = {}
+    channel_roles = (device_config or {}).get("channel_roles") or {}
+
+    if 'voltage_a' in data_dict:
+        metrics['voltage'] = float(data_dict['voltage_a']) / 10.0
+    if 'freq' in data_dict:
+        metrics['frequency'] = float(data_dict['freq']) / 100.0
+
+    export_power = export_current = export_energy = 0.0
+    import_power = import_current = import_energy = 0.0
+    has_export = has_import = False
+
+    for ch in ('a', 'b'):
+        role = channel_roles.get(ch)
+        if role not in ('injection', 'consumption'):
+            continue  # canal não configurado/não instalado - sem dado real, sem métrica
+
+        power_key = f'power_{ch}'
+        current_key = f'current_{ch}'
+        pf_key = 'power_factor' if ch == 'a' else f'power_factor_{ch}'
+        fwd_key = f'energy_forword_{ch}'  # sic - typo vem da própria API Tuya
+        rev_key = f'energy_reserse_{ch}' if ch == 'b' else f'energy_reverse_{ch}'
+
+        power = float(data_dict.get(power_key, 0.0))
+        current = float(data_dict.get(current_key, 0.0)) / 1000.0
+        forward_kwh = float(data_dict.get(fwd_key, 0.0)) / 100.0
+        reverse_kwh = float(data_dict.get(rev_key, 0.0)) / 100.0
+
+        metrics[f'power_ch_{ch}'] = power
+        metrics[f'current_ch_{ch}'] = current
+        if pf_key in data_dict:
+            metrics[f'power_factor_ch_{ch}'] = float(data_dict[pf_key]) / 100.0
+
+        if role == 'injection':
+            export_power += power
+            export_current += current
+            export_energy += forward_kwh
+            import_energy += reverse_kwh  # fluxo reverso nesse CT = consumo real visto por ele
+            has_export = True
+        else:  # consumption
+            import_power += power
+            import_current += current
+            import_energy += forward_kwh
+            export_energy += reverse_kwh
+            has_import = True
+
+    if has_export:
+        metrics['power_export_total'] = export_power
+        metrics['current_export_total'] = export_current
+        metrics['energy_exported_total'] = export_energy
+    if has_import:
+        metrics['power_import_total'] = import_power
+        metrics['current_import_total'] = import_current
+        metrics['energy_imported_total'] = import_energy
+
+    return metrics
+
+
 def poll_tuya_devices():
     """
     Coleta dados de todos os dispositivos Tuya ativos
@@ -297,7 +384,7 @@ def poll_tuya_devices():
                     continue
                 
                 # Converter dados
-                metrics = parse_tuya_data(tuya_device_id, result)
+                metrics = parse_tuya_data(tuya_device_id, result, device_config=config)
                 
                 if not metrics:
                     print(f"   [WARN] {device.name}: Nenhuma metrica extraida")

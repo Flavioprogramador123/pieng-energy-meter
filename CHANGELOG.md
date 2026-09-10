@@ -3,6 +3,168 @@
 Todas as mudanças relevantes do projeto Energy Meter são registradas aqui.
 Formato livre, em português, por sessão de trabalho.
 
+## 2026-09-09 (noite, HOME) — Catálogo por category + product name
+
+### Decisão
+- O que mais se **repete** é `category` + **Product Name** (não o device_id).
+- Hierarquia do JSON: `categories` → `products` (nome Tuya) → `devices` (só nome
+  amigável + exceções).
+- Cards HOME passam a mostrar em destaque: **CATEGORY · Product Name**, depois o
+  tipo (Luz/Ar/Medidor...).
+
+## 2026-09-09 (noite, HOME) — Aubess 1-gang schema tipado confirmado
+
+### Atualizado
+- `eb5946695d88af3469ribh` (`Aubess Smart Switch 1-gang`): `dp_codes` passou de
+  lista simples para schema tipado (`switch_1`, `countdown_1`, `relay_status`
+  0/1/2, `switch_type` flip/sync/button, strings maxlen 255). Continua offline.
+
+## 2026-09-09 (noite, HOME) — WB03-NCD (luz da varanda) schema completo
+
+### Adicionado
+- Device `eb70f50b42d62534a1wnhe` (`WB03-NCD` / **luz da varanda**, cat. `kg`):
+  3 teclas `switch_1..3`, countdowns por tecla, `relay_status`
+  (`power_off`/`power_on`/`last`), cycle/random/inching.
+
+## 2026-09-09 (noite, HOME) — Lâmpada RGBCW + TV Samsung IR no catálogo
+
+### Adicionado
+- `eb1028824b950af6c6rthi` (`TC0000_W600_LIGHT5_RGBCW_P1`, cat. `dj`): luz RGBCW
+  com `switch_led`, `work_mode` (white/colour/scene/music), brilho/temp/cor.
+  Card previsto: `rgb_light` (liga/desliga já funciona via `switch_led`).
+- `ebdb589e70438d7223jryg` (`电视` / **Tv Samsung**, cat. real `infrared_tv`):
+  controle virtual no hub `04708305d8bfc017c02e`. Chave de energia = `Power`
+  (toggle STRING). Schema completo das teclas gravado (0–9, Volume±, Channel±,
+  setas, OK/Menu/Home/Back, `-/--`, e `C` como ENUM 1..999 para canal direto).
+
+## 2026-09-09 (noite, HOME) — Interruptor WiFi+RF433 (portão da garagem)
+
+### Adicionado
+- Device `eb61a0c15929a64a0dilbh` (`INTERRUPTOR WIFI + RF433`, nome na conta:
+  **portão da garagem**) no catálogo como switch 1 canal.
+- DPs: `switch_1`, `countdown_1`, `relay_status`, `switch_type`,
+  `remote_add` / `remote_list` (pareamento RF433).
+- Validado online: `switch_1=false`, `relay_status=2`, `switch_type=flip`.
+
+## 2026-09-09 (noite, HOME) — Aubess Smart Switch 1-gang no catálogo
+
+### Adicionado
+- Device `eb5946695d88af3469ribh` (`Aubess Smart Switch 1-gang`, categoria `tdq`)
+  no `home/device_catalog.json` como switch 1 canal (`switch_1`).
+- DPs: `countdown_1`, `relay_status` (0/1/2), `random_time`, `cycle_time`,
+  `switch_inching`, `switch_type` (`flip`/`sync`/`button`).
+- Status no momento do registro: **Offline** (ativado em 2023-02-19).
+- Importante: mesma categoria `tdq` do PC473, mas é relé simples — override por
+  `device_id` evita tratar como medidor trifásico.
+
+## 2026-09-09 (noite, HOME) — PC473_OUYOU trifásico no catálogo + card L1/L2/L3
+
+### Adicionado
+- Device `eb9a1c787c60d712fazces` (`PC473_OUYOU` / medidorCASA) no
+  `home/device_catalog.json` como **meter trifásico** (não mais switch `tdq`).
+- Card `triphase_meter`: potência total, 60 Hz, kWh rede/solar e L1/L2/L3
+  (tensão/potência/corrente) + botão do relé `switch_1`.
+- DPs capturados do usuário (Standard Instruction parcial: só
+  `switch_1`/`fault`/`relay_status` mapeados; resto `-` → shadow).
+
+### Validação real
+- Shadow: L1≈228.9 V / 760 W, L2≈229.5 V / 220 W, L3≈228.1 V / 531 W,
+  total 1503 W, freq 60 Hz, `switch_1=true`.
+
+## 2026-09-09 (noite, HOME) — Solar WIFI dual meter no catálogo + card medidor
+
+### Adicionado
+- Device `eb12907d3f923984f1wntb` (`Solar WIFI dual meter`) no
+  `home/device_catalog.json` com todos os DPs informados pelo usuário.
+- Card **Medidor** na UI (aba Medidores): tensão, frequência, potências A/B,
+  correntes, direção FORWARD/REVERSE e energias.
+- Engine passa a ler `shadow/properties` quando `getstatus` vem vazio ou quando
+  o catálogo define `status_source: "shadow"` (caso deste medidor; Standard
+  Instruction sem mapeamento `-`).
+
+### Notas técnicas reais
+- Categoria Tuya `cz` (parecia tomada), mas não é switch.
+- Typos oficiais da API: `energy_forword_*`, `energy_reserse_b`.
+- Escalas alinhadas ao poller Energy Meter: V÷10, Hz÷100, A÷1000, FP÷100, kWh÷100.
+- `coef_*_reset` bloqueados na UI/API HOME.
+- Amostra validada: `voltage_a=230.0 V`, `freq≈58.98 Hz`,
+  `energy_forword_a=17.90 kWh`, `direction_a=FORWARD`.
+
+## 2026-09-09 (noite, HOME) — Catálogo JSON + cards sensor/gateway/AC IR
+
+### Adicionado
+- `home/device_catalog.json`: conhecimento versionado dos devices reais
+  (interruptores 3 teclas, Ar Consul + hub IR, sensor clima `wsdcg`,
+  gateway Zigbee `QC-ZB-GW`, hub IR Ekaza).
+- Endpoint `GET /home/api/catalog` para inspecionar o conhecimento.
+- Cards novos na UI HOME:
+  - **Sensor**: temperatura/umidade/bateria + limites de alarme.
+  - **Gateway**: estado `normal/alarm`, alarme ativo, som do alarme;
+    `factory_reset` bloqueado.
+  - Abas Sensores / Gateway.
+- Assets HOME em `v=3`.
+
+### Corrigido / consolidado
+- Cards de interruptores Tuya `kg` controlam `switch_1`/`switch_2`/`switch_3`.
+- Ar Consul usa API IR do hub físico (`04708305d8bfc017c02e`) —
+  exige **IR Control Hub Open Service**.
+- Sensor `eb9566f34c86a5f2211xsj`: `va_temperature`/`va_humidity` com scale 1
+  (ex.: 269 → 26.9 °C). O `switch` do sensor NÃO é luz.
+- Gateway `eb0c341d9937c0724av8b4` (`QC-ZB-GW`): só controles seguros.
+
+### Validação real
+- `PowerOff` via hub IR desligou fisicamente o Ar Consul.
+- Interruptor da frente/quintal/sala: 3 canais lidos corretamente.
+- Sensor online com temp/umidade/bateria reais.
+- Servidor: `http://127.0.0.1:8001/home`.
+
+## 2026-09-09 (noite, HOME) — Interruptores multi-tecla + ar Consul via IR Hub
+
+### Corrigido
+- Cards HOME de interruptores Tuya `kg` controlavam somente `switch_1`, embora os
+  dispositivos reais da sala, quintal, frente e varanda exponham também
+  `switch_2` e `switch_3`. Cada card agora mostra e aciona separadamente
+  **Tecla 1**, **Tecla 2** e **Tecla 3**, usando o código Tuya correto.
+- A confirmação após um comando deixou de reler todos os dispositivos da conta;
+  consulta somente o device acionado, evitando timeout e estado visual atrasado.
+- Assets HOME receberam versão `v=2` para impedir que o navegador reutilize
+  JavaScript/CSS antigos.
+- **Ar Consul** (`ebb156318969d8d865tuky`): comando direto no device virtual
+  retornava `success` sem emitir IR. Passou a usar a API
+  `/v2.0/infrareds/{hub}/remotes/{remote}/command` no hub físico
+  `04708305d8bfc017c02e` (exige **IR Control Hub Open Service** autorizada).
+
+### Validação real
+- Tuya confirmou comando idempotente direto com `success: true`.
+- Endpoint HTTP corrigido confirmou `switch_2` com `ok: true`.
+- Leitura real do interruptor da sala retornou os três estados:
+  `switch_1=true`, `switch_2=false`, `switch_3=true`.
+- `PowerOff` via hub IR desligou fisicamente o ar Consul (confirmado pelo usuário).
+- Servidor corrigido em `http://127.0.0.1:8001/home`.
+
+## 2026-09-09 (noite, acesso remoto) — Ação futura para 2026-09-10
+
+### Decisão planejada
+- Usar **Tailscale** como primeira opção para acessar remotamente o computador do
+  escritório, o dashboard (`:8001`) e, quando necessário, o PostgreSQL nativo
+  (`:5432`) no `K:\storage`.
+- O controle do servidor central, das conexões e dos bancos de outros programas
+  fica no projeto irmão `pieng_postgres`. O documento canônico é
+  `pieng_postgres/REMOTE_ACCESS.md`; este projeto apenas consome/espelha dados.
+- Não expor a porta 5432 diretamente na Internet. O acesso ao banco deve ocorrer
+  pelo serviço PostgreSQL através da VPN, nunca compartilhando a pasta `pgdata`.
+- Manter a coleta no SQLite local e o flush para o PostgreSQL a cada 30 minutos,
+  evitando que uma queda de Internet interrompa as leituras reais.
+- Deixar um túnel **WireGuard entre MikroTiks** como alternativa futura para
+  interligar redes completas ou instalações com vários equipamentos.
+
+### Ação futura
+- Primeiro computador autenticado no Tailscale com sucesso (`100.126.2.58`).
+- Instalar e autenticar o computador que hospeda o PostgreSQL e o `K:\storage`.
+- Validar primeiro o acesso ao dashboard pelo IP privado Tailscale.
+- Se for necessário acesso direto ao banco, restringir `postgresql.conf`,
+  `pg_hba.conf` e o Firewall do Windows ao IP Tailscale autorizado.
+
 ## 2026-09-09 (noite, cont.) — Navegação de período (dia/semana/mês anterior) + achado: servidores duplicados
 
 ### Adicionado

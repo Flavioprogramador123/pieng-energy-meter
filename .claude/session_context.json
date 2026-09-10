@@ -17,6 +17,14 @@
       "test_postgres_docker": "docker-compose.yml PRESERVADO. Volume K:/storage/postgres/energy_meter_docker porta 5433. Docker ainda nao instalado.",
       "database_url_explanation": "DATABASE_URL = banco que a APP inteira usa. Trocar para Postgres faria cada poll depender do USB. Por isso ainda nao trocamos — usamos flush/espelho."
     },
+    "remote_access_plan": {
+      "status": "Computador atual autenticado no Tailscale em 2026-09-09 com IP 100.126.2.58; concluir computador do storage em 2026-09-10",
+      "recommended": "Tailscale nos computadores remoto e do escritorio; acessar primeiro o dashboard :8001 pelo IP privado.",
+      "postgres": "Se necessario, acessar :5432 pela VPN, limitando postgresql.conf, pg_hba.conf e Firewall do Windows ao IP Tailscale autorizado.",
+      "security": "Nao abrir 5432 diretamente na Internet e nunca compartilhar a pasta pgdata.",
+      "owner": "O projeto pieng_postgres controla o servidor central e os bancos dos programas PIENG. Documento canonico: pieng_postgres/REMOTE_ACCESS.md.",
+      "future_alternative": "WireGuard entre MikroTiks para interligar redes completas ou varias instalacoes."
+    },
     "storage_k": {
       "volume_label": "STORAGE",
       "root": "K:\\storage"
@@ -29,7 +37,9 @@
     "Abrir /api/db e validar ONLINE + uso do cache vs 200 MB",
     "Opcional futuro: dual-write ou trocar DATABASE_URL so apos USB estavel",
     "Mini PC / Docker depois; pg_dump para migrar",
-    "Cuidado com uvicorn duplicado (8000 zumbi vs 8001 vivo) — preferir um unico processo"
+    "Cuidado com uvicorn duplicado (8000 zumbi vs 8001 vivo) — preferir um unico processo",
+    "Instalar Tailscale nos dois computadores e validar acesso remoto ao dashboard :8001",
+    "Se necessario, configurar acesso ao PostgreSQL :5432 somente pela VPN Tailscale"
   ],
   "processes_to_be_aware_of": {
     "live_server": "uvicorn --reload :8001 (venv) - coletor SQLite - NAO derrubar sem avisar",
