@@ -6,10 +6,10 @@ async function fetchJSON(url) {
 
 function el(id) { return document.getElementById(id); }
 
-/** Potência no banco fica em W; na UI exibimos kW (mais usual). */
+/** Potência no banco fica em W; na UI exibimos kW em módulo (|P|). */
 function wattsToKw(w) {
   if (w == null || Number.isNaN(Number(w))) return null;
-  return Number(w) / 1000;
+  return Math.abs(Number(w)) / 1000;
 }
 function fmtKw(w, digits = 2) {
   const k = wattsToKw(w);
@@ -18,6 +18,13 @@ function fmtKw(w, digits = 2) {
 }
 function seriesValuesKw(arr) {
   return (arr || []).map((x) => wattsToKw(x.value));
+}
+/** Corrente em módulo (|I|) — mesmo critério do dual meter. */
+function seriesValuesAbs(arr) {
+  return (arr || []).map((x) => {
+    const n = Number(x?.value);
+    return Number.isNaN(n) ? null : Math.abs(n);
+  });
 }
 
 function setLiveStatus(mode) {
@@ -584,7 +591,7 @@ function renderFromCache() {
     let energy_integrated_wh = 0;
     if (powerData.length > 1) {
       for (let idx = 1; idx < powerData.length; idx++) {
-        const power_avg = (powerData[idx].value + powerData[idx-1].value) / 2; // Watts
+        const power_avg = (Math.abs(powerData[idx].value) + Math.abs(powerData[idx-1].value)) / 2; // Watts |P|
         const time_diff_ms = new Date(powerData[idx-1].timestamp) - new Date(powerData[idx].timestamp);
         const time_diff_h = Math.abs(time_diff_ms) / (1000 * 3600); // Horas
         energy_integrated_wh += power_avg * time_diff_h; // Wh
@@ -592,8 +599,8 @@ function renderFromCache() {
     }
 
     const vNum = Number(v || 0);
-    const iNum = Number(i || 0);
-    const pNum = Number(p || 0);
+    const iNum = Math.abs(Number(i || 0));
+    const pNum = Math.abs(Number(p || 0));
     const eWhNum = Number(e_wh || 0);
 
     // Usar energia integrada se disponível, senão usar leitura do medidor (filtrar valores absurdos)
@@ -619,10 +626,10 @@ function renderFromCache() {
     const power_factor = apparent_power > 0 ? Math.abs(pNum) / apparent_power : null;
     const cost = e_kwh != null ? e_kwh * 0.65 : null;
 
-    // Médias
+    // Médias (P e I em módulo — sentido do fluxo não entra na escala do gráfico)
     const avgV = voltageData.length ? voltageData.reduce((sum, d) => sum + d.value, 0) / voltageData.length : null;
-    const avgI = currentData.length ? currentData.reduce((sum, d) => sum + d.value, 0) / currentData.length : null;
-    const avgP = powerData.length ? powerData.reduce((sum, d) => sum + d.value, 0) / powerData.length : null;
+    const avgI = currentData.length ? currentData.reduce((sum, d) => sum + Math.abs(d.value), 0) / currentData.length : null;
+    const avgP = powerData.length ? powerData.reduce((sum, d) => sum + Math.abs(d.value), 0) / powerData.length : null;
 
     // Atualizar valores em tempo real
     if (!hasEnergyMetrics) {
@@ -872,7 +879,7 @@ function renderFromCache() {
       }
 
       updateChart(charts.voltage, vLabels, vSeries.map(x => x.value));
-      updateChart(charts.current, iLabels, iSeries.map(x => x.value));
+      updateChart(charts.current, iLabels, seriesValuesAbs(iSeries));
       updateChart(charts.power, pLabels, seriesValuesKw(pSeries));
     }
 
@@ -913,7 +920,7 @@ function renderFromCache() {
       }));
     }
     if (iSeries.length) {
-      multiDatasets.push(lineDataset('Corrente (A)', iSeries.slice(0, 80).map(x => x.value), C.current, {
+      multiDatasets.push(lineDataset('Corrente (A)', seriesValuesAbs(iSeries.slice(0, 80)), C.current, {
         more: { yAxisID: 'yI' }
       }));
     }
