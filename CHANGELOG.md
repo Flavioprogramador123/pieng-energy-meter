@@ -3,6 +3,26 @@
 Todas as mudanças relevantes do projeto Energy Meter são registradas aqui.
 Formato livre, em português, por sessão de trabalho.
 
+## 2026-09-09 (noite final) — Validação ao vivo no painel + encerramento
+
+### Testado pelo usuário (logs :8001)
+- Interruptor `eba5da7bcaca181936499z` tecla 3 → ligar → `success: True`
+- Interruptor `ebdd111cd1fc767c0fbyta` tecla 2 → ligar → `success: True`
+- Ar Consul: `T24`, `T23` e `PowerOff` pelo hub IR → `success: True`
+- Poller Energy Meter: medidorCASA + Solar Dual Meter coletando normalmente
+
+### Problema conhecido (Tuya Cloud, não do código)
+- Device `eb5a1f91b343c565846oqi` (3 teclas): erro **`60001001`**
+  *Your controllable device pool quota is insufficient.*
+- Causa: cota/vínculo do projeto no console Tuya IoT (aparelho fora do pool
+  controlável ou cota do plano). Correção no console Tuya, não no app.
+
+### Operação ao encerrar
+- Servidores locais derrubados; PC desligado a pedido do usuário.
+- Branch publicada: `feature/home-module` (GitHub + PR #1).
+- Amanhã em outra máquina: `git checkout feature/home-module` + `.env` Tuya +
+  `uvicorn :8001` (ver checklist da sessão).
+
 ## 2026-09-09 (madrugada, HOME) — Repaginação do painel web + correções que faltavam
 
 ### Corrigido (backend)

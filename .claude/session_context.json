@@ -1,7 +1,7 @@
 {
   "project": "pieng-energy-meter",
   "last_session_date": "2026-09-09",
-  "summary": "Flush SQLite→Postgres a cada 30 min + teto cache SQLite 200 MB (~3 dias / ~3 aparelhos). Painel /api/db edita os dois. Hot path continua SQLite; Postgres no K: é espelho.",
+  "summary": "HOME web repaginado e validado ao vivo (interruptores, ar IR, offline). Flush SQLite→Postgres 30 min permanece. Encerrado com push em feature/home-module e desligamento do PC.",
   "current_architecture": {
     "database": {
       "production_hot": "SQLite (data/app.db) - fonte de verdade da coleta/Dashboard. NAO cortar sem avisar.",
@@ -34,21 +34,25 @@
     }
   },
   "home_ui_direction": {
-    "status": "web /home JA repaginado e funcional (2026-09-10 madrugada); Flutter/React+Babylon continuam como proximos testes",
+    "status": "web /home JA repaginado e funcional (2026-09-09 noite); Flutter/React+Babylon continuam como proximos testes",
     "feito_no_web": "tema escuro vibrante, icones SVG por tipo, toggle de 1 toque, brilho neon quando ligado, termostato do ar, resumo online/offline, offline desabilitado",
-    "problema": "Visual atual de /home e fraco para uso real em celular/tablet; falta identidade tecnologica, cor vibrante e icones que remetam a luz/interruptor/portao/TV.",
     "alvo_futuro": "React + TypeScript + Babylon.js + Framer Motion + Tailwind, PWA em modo kiosk no tablet.",
-    "passo_de_hoje": "Ir pelo simples: prototipo em Flutter.",
-    "ajuste_importante": "A referencia pesquisada assume Home Assistant + WebSocket do HA. Este projeto NAO usa Home Assistant: a fonte de verdade e /home/api/* do FastAPI; se precisar de tempo real, criar WebSocket proprio.",
-    "invariantes": [
-      "acao principal em 1 toque, botao grande",
-      "animacoes de 300-700 ms",
-      "estado sempre explicito: ligado/desligado/abrindo/fechando/indisponivel",
-      "modo simples de fallback se a cena 3D ficar lenta",
-      "o desenho nunca e a unica indicacao de estado",
-      "somente dados reais da Tuya"
-    ],
+    "proximo_prototipo": "Flutter (simples) antes de fixar stack",
+    "ajuste_importante": "Nao usamos Home Assistant: fonte de verdade e /home/api/* do FastAPI.",
     "doc": "docs/HOME_UI_STACK.md"
+  },
+  "home_live_validation_2026_09_09": {
+    "ok": [
+      "eba5da7bcaca181936499z switch_3 ligar",
+      "ebdd111cd1fc767c0fbyta switch_2 ligar",
+      "Ar Consul T24 / T23 / PowerOff via hub IR"
+    ],
+    "tuya_quota_error": {
+      "device_id": "eb5a1f91b343c565846oqi",
+      "code": 60001001,
+      "msg": "Your controllable device pool quota is insufficient.",
+      "fix": "Console Tuya IoT (pool controlavel / cota do plano), nao bug do app"
+    }
   },
   "home_online_status": {
     "fonte": "GET /v2.0/cloud/thing/batch (is_online), lotes de 20; getdevices nao traz online",
@@ -62,24 +66,26 @@
     "performance": "list_home_devices usa ThreadPoolExecutor(8): ~11s para 25 aparelhos (era ~43s em serie)"
   },
   "pending_next_steps": [
+    "Resolver 60001001 no console Tuya para eb5a1f91b343c565846oqi (pool controlavel)",
     "HOME visual: prototipar em Flutter e comparar com React+Babylon antes de fixar stack",
-    "Abrir /api/db e validar ONLINE + uso do cache vs 200 MB",
-    "Opcional futuro: dual-write ou trocar DATABASE_URL so apos USB estavel",
-    "Mini PC / Docker depois; pg_dump para migrar",
-    "Cuidado com uvicorn duplicado (8000 zumbi vs 8001 vivo) — preferir um unico processo",
-    "Instalar Tailscale nos dois computadores e validar acesso remoto ao dashboard :8001",
-    "Se necessario, configurar acesso ao PostgreSQL :5432 somente pela VPN Tailscale"
+    "Na outra maquina: pull feature/home-module + .env Tuya + uvicorn :8001",
+    "Instalar Tailscale no PC do storage e validar acesso remoto",
+    "Cuidado com uvicorn duplicado — preferir um unico processo"
   ],
   "processes_to_be_aware_of": {
-    "live_server": "uvicorn --reload :8001 (venv) - coletor SQLite - NAO derrubar sem avisar",
-    "postgres_native": "postgresql-x64-17 Running - dados no K:",
+    "live_server": "encerrado em 2026-09-09 noite a pedido do usuario (PC desligado)",
+    "postgres_native": "postgresql-x64-17 (se K: existir nesta maquina)",
     "flush_job": "id=postgres_flush no APScheduler - 30 min - respeita runtime_settings.json"
+  },
+  "git": {
+    "branch": "feature/home-module",
+    "pr": "https://github.com/Flavioprogramador123/pieng-energy-meter/pull/1"
   },
   "docs": [
     "CHANGELOG.md",
+    "docs/HOME_UI_STACK.md",
+    "home/README.md",
     "docs/SETUP_POSTGRES_NATIVO_K.md",
-    "K:\\storage\\README.txt",
-    "docker-compose.yml",
     ".claude/session_context.json",
     "env.example"
   ]
