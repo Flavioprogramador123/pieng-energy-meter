@@ -271,66 +271,96 @@ def parse_dual_meter_data(data_dict: Dict[str, Any], device_config: Dict) -> Dic
     registra métrica nenhuma para ele, porque um CT não instalado não está
     medindo nada real (gravar zero seria dado fake).
 
-    Reaproveita os nomes de métrica power_export_total/power_import_total/
-    energy_exported_total/energy_imported_total (mesmos do medidor trifásico
-    "tdq") para que o card Rede/Solar do dashboard funcione sem mudança.
+    Potência e corrente dos canais entram em MÓDULO (|P|, |I|) nos totais de
+    Rede/Solar e no card de linha: o sinal só indica sentido do fluxo.
     """
     metrics: Dict[str, Any] = {}
     channel_roles = (device_config or {}).get("channel_roles") or {}
 
-    if 'voltage_a' in data_dict:
-        metrics['voltage'] = float(data_dict['voltage_a']) / 10.0
-    if 'freq' in data_dict:
-        metrics['frequency'] = float(data_dict['freq']) / 100.0
+    if "voltage_a" in data_dict:
+        metrics["voltage"] = float(data_dict["voltage_a"]) / 10.0
+    if "freq" in data_dict:
+        metrics["frequency"] = float(data_dict["freq"]) / 100.0
+
+    # Potência líquida do aparelho (DP real). No card monofásico usamos módulo.
+    if "total_power" in data_dict:
+        raw_total = float(data_dict["total_power"])
+        metrics["power_signed"] = raw_total
+        metrics["power"] = abs(raw_total)
+    if "forward_energy_total" in data_dict:
+        metrics["energy_imported_total"] = float(data_dict["forward_energy_total"]) / 100.0
+    if "reverse_energy_total" in data_dict:
+        metrics["energy_exported_total"] = float(data_dict["reverse_energy_total"]) / 100.0
 
     export_power = export_current = export_energy = 0.0
     import_power = import_current = import_energy = 0.0
     has_export = has_import = False
+    line_current = 0.0
+    line_power = 0.0
+    has_line = False
 
-    for ch in ('a', 'b'):
+    for ch in ("a", "b"):
         role = channel_roles.get(ch)
-        if role not in ('injection', 'consumption'):
-            continue  # canal não configurado/não instalado - sem dado real, sem métrica
+        if role not in ("injection", "consumption"):
+            continue  # canal não configurado/não instalado
 
-        power_key = f'power_{ch}'
-        current_key = f'current_{ch}'
-        pf_key = 'power_factor' if ch == 'a' else f'power_factor_{ch}'
-        fwd_key = f'energy_forword_{ch}'  # sic - typo vem da própria API Tuya
-        rev_key = f'energy_reserse_{ch}' if ch == 'b' else f'energy_reverse_{ch}'
+        power_key = f"power_{ch}"
+        current_key = f"current_{ch}"
+        pf_key = "power_factor" if ch == "a" else f"power_factor_{ch}"
+        fwd_key = f"energy_forword_{ch}"  # sic - typo oficial Tuya
+        rev_key = f"energy_reserse_{ch}" if ch == "b" else f"energy_reverse_{ch}"
 
-        power = float(data_dict.get(power_key, 0.0))
-        current = float(data_dict.get(current_key, 0.0)) / 1000.0
+        power_signed = float(data_dict.get(power_key, 0.0))
+        current_signed = float(data_dict.get(current_key, 0.0)) / 1000.0
+        power_mag = abs(power_signed)
+        current_mag = abs(current_signed)
         forward_kwh = float(data_dict.get(fwd_key, 0.0)) / 100.0
         reverse_kwh = float(data_dict.get(rev_key, 0.0)) / 100.0
 
-        metrics[f'power_ch_{ch}'] = power
-        metrics[f'current_ch_{ch}'] = current
+        metrics[f"power_ch_{ch}"] = power_mag
+        metrics[f"power_ch_{ch}_signed"] = power_signed
+        metrics[f"current_ch_{ch}"] = current_mag
+        metrics[f"current_ch_{ch}_signed"] = current_signed
         if pf_key in data_dict:
-            metrics[f'power_factor_ch_{ch}'] = float(data_dict[pf_key]) / 100.0
+            metrics[f"power_factor_ch_{ch}"] = float(data_dict[pf_key]) / 100.0
 
-        if role == 'injection':
-            export_power += power
-            export_current += current
+        line_current += current_mag
+        line_power += power_mag
+        has_line = True
+
+        if role == "injection":
+            export_power += power_mag
+            export_current += current_mag
             export_energy += forward_kwh
-            import_energy += reverse_kwh  # fluxo reverso nesse CT = consumo real visto por ele
+            import_energy += reverse_kwh
             has_export = True
-        else:  # consumption
-            import_power += power
-            import_current += current
+        else:  # consumption / carga
+            import_power += power_mag
+            import_current += current_mag
             import_energy += forward_kwh
             export_energy += reverse_kwh
             has_import = True
 
+    if has_line:
+        metrics["current"] = line_current
+        # Com CT ativo, potência de linha = soma dos módulos dos canais em uso
+        metrics["power"] = line_power
+
     if has_export:
-        metrics['power_export_total'] = export_power
-        metrics['current_export_total'] = export_current
-        metrics['energy_exported_total'] = export_energy
+        metrics["power_export_total"] = export_power
+        metrics["current_export_total"] = export_current
+        metrics["energy_exported_total"] = export_energy
     if has_import:
-        metrics['power_import_total'] = import_power
-        metrics['current_import_total'] = import_current
-        metrics['energy_imported_total'] = import_energy
+        metrics["power_import_total"] = import_power
+        metrics["current_import_total"] = import_current
+        metrics["energy_imported_total"] = import_energy
+
+    if "energy_imported_total" in metrics:
+        metrics["energy_kwh"] = float(metrics["energy_imported_total"])
+        metrics["energy_wh"] = float(metrics["energy_imported_total"]) * 1000.0
 
     return metrics
+
 
 
 def poll_tuya_devices():

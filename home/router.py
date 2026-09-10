@@ -6,6 +6,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
+from home import prefs as home_prefs
 from home import tuya_client
 
 router = APIRouter(tags=["home"])
@@ -29,6 +30,13 @@ class AcTempBody(BaseModel):
     temp: int = Field(..., ge=16, le=30)
 
 
+class PrefsBody(BaseModel):
+    selected_home_ids: list[int] | None = None
+    selected_home_id: int | None = None  # compat
+    enabled_device_ids: list[str] | None = None
+    skip_offline_status: bool | None = None
+
+
 @router.get("", response_class=HTMLResponse)
 def home_page(request: Request):
     return templates.TemplateResponse("home.html", {"request": request})
@@ -43,11 +51,73 @@ def api_catalog():
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
-@router.get("/api/devices")
-def api_devices(include_other: bool = False):
+@router.get("/api/homes")
+def api_homes():
     try:
-        devices = tuya_client.list_home_devices(include_other=include_other)
-        return {"ok": True, "count": len(devices), "devices": devices}
+        homes = tuya_client.list_tuya_homes()
+        prefs = home_prefs.load_prefs()
+        selected_ids = tuya_client.resolve_selected_home_ids(prefs)
+        return {
+            "ok": True,
+            "homes": homes,
+            "selected_home_ids": selected_ids,
+            "selected_home_id": selected_ids[0] if selected_ids else None,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+@router.get("/api/prefs")
+def api_prefs_get():
+    prefs = home_prefs.load_prefs()
+    selected_ids = tuya_client.resolve_selected_home_ids(prefs)
+    return {
+        "ok": True,
+        "prefs": prefs,
+        "selected_home_ids": selected_ids,
+        "selected_home_id": selected_ids[0] if selected_ids else None,
+    }
+
+
+@router.put("/api/prefs")
+def api_prefs_put(body: PrefsBody):
+    try:
+        kwargs: dict = {
+            "enabled_device_ids": body.enabled_device_ids,
+            "skip_offline_status": body.skip_offline_status,
+        }
+        if body.selected_home_ids is not None:
+            kwargs["selected_home_ids"] = body.selected_home_ids
+        elif body.selected_home_id is not None:
+            kwargs["selected_home_ids"] = [body.selected_home_id]
+        saved = home_prefs.save_prefs(**kwargs)
+        tuya_client.invalidate_devices_cache()
+        return {"ok": True, "prefs": saved}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e)) from e
+
+
+@router.get("/api/devices/inventory")
+def api_devices_inventory(home_id: int | None = None):
+    """Inventário leve (sem status) — todas as residências, ou uma se home_id informado."""
+    try:
+        if home_id is None:
+            data = tuya_client.inventory_all_homes()
+        else:
+            data = tuya_client.inventory_home_devices(home_id=home_id)
+        return {"ok": True, **data}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+@router.get("/api/devices")
+def api_devices(include_other: bool = False, refresh: bool = False):
+    try:
+        payload = tuya_client.list_home_devices(
+            include_other=include_other,
+            force_refresh=refresh,
+        )
+        return {"ok": True, **payload}
     except Exception as e:
         raise HTTPException(status_code=502, detail=str(e)) from e
 
@@ -76,6 +146,7 @@ def api_switch(device_id: str, body: SwitchBody, kind: str | None = None):
             resp = tuya_client.set_switch(device_id, body.on, code=body.code)
         ok = bool(isinstance(resp, dict) and (resp.get("success") is True or "result" in resp))
         _log(f"SWITCH device={device_id} ok={ok} response={resp}")
+        tuya_client.invalidate_devices_cache()
         return {"ok": ok, "response": resp}
     except Exception as e:
         _log(f"SWITCH device={device_id} FALHOU: {e}")
@@ -89,6 +160,7 @@ def api_ac_power(device_id: str, body: AcPowerBody):
         resp = tuya_client.set_ac_power(device_id, body.on)
         ok = bool(isinstance(resp, dict) and (resp.get("success") is True or "result" in resp))
         _log(f"AC_POWER device={device_id} ok={ok} response={resp}")
+        tuya_client.invalidate_devices_cache()
         return {"ok": ok, "response": resp}
     except Exception as e:
         _log(f"AC_POWER device={device_id} FALHOU: {e}")

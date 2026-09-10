@@ -30,50 +30,51 @@
     <input type="hidden" id="periodSelect" value="1d" />
 
     <button id="loadBtn" class="btn-primary">Carregar</button>
+    <a id="dashboardHomeBtn" class="btn-secondary" href="/api/dashboard" title="Voltar aos cards ao vivo do Dashboard">Cards Dashboard</a>
   </section>
 
   <div id="statusMsg" class="status-msg"></div>
 
-  <section class="grid" style="grid-template-columns: repeat(3, 1fr)">
-    <div class="card card-chart card-chart-multi" style="grid-column: span 3">
+  <section class="grid charts-grid analytics-grid">
+    <div class="card card-chart card-chart-multi span-all">
       <h3>Evolução Temporal — Mínimo / Média / Máximo</h3>
       <div class="chart-wrap chart-wrap-tall"><canvas id="chartTemporal"></canvas></div>
     </div>
 
     <div class="card card-alarms">
       <h3>Demanda — Pico vs Fora-Ponta</h3>
-      <div id="demandBox" style="font-size:14px;line-height:2"></div>
+      <div id="demandBox" class="analytics-box"></div>
     </div>
 
-    <div class="card card-chart card-chart-power" style="grid-column: span 2">
+    <div class="card card-chart card-chart-power span-2">
       <h3>Curva / Distribuição por Hora</h3>
       <div class="chart-wrap"><canvas id="chartHourly"></canvas></div>
     </div>
 
     <div class="card card-averages">
       <h3>Estatísticas do Período</h3>
-      <div id="statsBox" style="font-size:14px;line-height:2"></div>
+      <div id="statsBox" class="analytics-box"></div>
     </div>
 
-    <div class="card card-chart card-chart-energy" style="grid-column: span 2">
+    <div class="card card-chart card-chart-energy span-2">
       <h3>Série da Métrica Selecionada</h3>
       <div class="chart-wrap"><canvas id="chartEnergy"></canvas></div>
     </div>
 
     <div class="card card-pf">
       <h3>Qualidade — Six Sigma</h3>
-      <div id="sixSigmaBox" style="font-size:14px;line-height:2"></div>
+      <div id="sixSigmaBox" class="analytics-box"></div>
     </div>
 
-    <div class="card card-energy" style="grid-column: span 2">
+    <div class="card card-energy span-2">
       <h3>Comparação com Período Anterior</h3>
-      <div id="periodCompareBox" style="font-size:14px;line-height:2"></div>
+      <div id="periodCompareBox" class="analytics-box"></div>
     </div>
 
-    <div class="card card-solar-split" style="grid-column: span 3">
+    <div class="card card-solar-split span-all">
       <h3>Rede × Solar (injeção)</h3>
-      <p class="muted" style="margin:0 0 8px;font-size:12px">Premissa: potência/corrente negativas = injeção da usina solar na rede.</p>
-      <div id="solarBox" style="font-size:14px;line-height:1.85"></div>
+      <p class="muted analytics-premise">Premissa: potência/corrente negativas = injeção da usina solar na rede.</p>
+      <div id="solarBox" class="analytics-box analytics-box-tight"></div>
     </div>
   </section>
 {% endblock %}
@@ -91,18 +92,18 @@
       switch_status: 'Switch / Relé',
       voltage: 'Tensão (V)',
       current: 'Corrente (A)',
-      power: 'Potência (W)',
+      power: 'Potência (kW)',
       energy_wh: 'Energia (Wh)',
       energy_kwh: 'Energia (kWh)',
-      power_total: 'Potência líquida total (W)',
-      power_import_total: 'Potência rede — consumo (W)',
-      power_export_total: 'Potência solar — injeção (W)',
-      power_import_l1: 'Potência rede L1 (W)',
-      power_import_l2: 'Potência rede L2 (W)',
-      power_import_l3: 'Potência rede L3 (W)',
-      power_export_l1: 'Potência injeção L1 (W)',
-      power_export_l2: 'Potência injeção L2 (W)',
-      power_export_l3: 'Potência injeção L3 (W)',
+      power_total: 'Potência líquida total (kW)',
+      power_import_total: 'Potência rede — consumo (kW)',
+      power_export_total: 'Potência solar — injeção (kW)',
+      power_import_l1: 'Potência rede L1 (kW)',
+      power_import_l2: 'Potência rede L2 (kW)',
+      power_import_l3: 'Potência rede L3 (kW)',
+      power_export_l1: 'Potência injeção L1 (kW)',
+      power_export_l2: 'Potência injeção L2 (kW)',
+      power_export_l3: 'Potência injeção L3 (kW)',
       current_import_total: 'Corrente rede (A)',
       current_export_total: 'Corrente injeção (A)',
       current_import_l1: 'Corrente rede L1 (A)',
@@ -125,9 +126,9 @@
       current_l1: 'Corrente L1',
       current_l2: 'Corrente L2',
       current_l3: 'Corrente L3',
-      power_l1: 'Potência L1',
-      power_l2: 'Potência L2',
-      power_l3: 'Potência L3',
+      power_l1: 'Potência L1 (kW)',
+      power_l2: 'Potência L2 (kW)',
+      power_l3: 'Potência L3 (kW)',
       frequency: 'Frequência',
       power_factor: 'Fator de Potência'
     };
@@ -199,6 +200,27 @@
       }
     }
 
+    const OVERVIEW_VALUE = '__dashboard__';
+    const DEFAULT_METRICS = [
+      'power_export_total', 'power_import_total', 'power_total', 'power',
+      'energy_exported_total', 'energy_imported_total', 'energy_kwh', 'energy_wh',
+      'current_export_total', 'current_import_total', 'voltage_l1', 'voltage',
+      'frequency', 'switch_status', 'current'
+    ];
+
+    function metricGroup(metric) {
+      if (/^(power|current|energy)_(import|export)_/.test(metric) || metric.includes('imported') || metric.includes('exported')) {
+        return 'Rede × Solar';
+      }
+      if (/_(l1|l2|l3)$/.test(metric) || metric === 'voltage_avg' || metric === 'current_total') {
+        return 'Por fase';
+      }
+      if (['power_total', 'power', 'voltage', 'current', 'frequency', 'power_factor', 'energy_kwh', 'energy_wh', 'switch_status'].includes(metric)) {
+        return 'Principais';
+      }
+      return 'Outras';
+    }
+
     async function loadAvailableMetrics(preferMetric) {
       const deviceId = el('deviceSelect').value;
       const period = el('periodSelect').value;
@@ -211,27 +233,56 @@
       const available = await fetchJSON(`/api/metrics/available?device_id=${deviceId}&period=${period}`);
       select.innerHTML = '';
 
+      // Sempre primeiro: voltar aos cards do Dashboard (index)
+      const overview = document.createElement('option');
+      overview.value = OVERVIEW_VALUE;
+      overview.textContent = '← Visão geral — cards do Dashboard';
+      select.appendChild(overview);
+
       if (!available.length) {
-        select.innerHTML = '<option value="">Nenhuma métrica com dados</option>';
+        const empty = document.createElement('option');
+        empty.value = '';
+        empty.textContent = 'Nenhuma métrica com dados neste período';
+        select.appendChild(empty);
+        select.value = OVERVIEW_VALUE;
         return [];
       }
 
+      const byGroup = { 'Principais': [], 'Rede × Solar': [], 'Por fase': [], 'Outras': [] };
       available.forEach((item) => {
-        const opt = document.createElement('option');
-        opt.value = item.metric;
-        const label = METRIC_LABELS[item.metric] || item.metric;
-        opt.textContent = `${label} (${item.count})`;
-        select.appendChild(opt);
+        const g = metricGroup(item.metric);
+        (byGroup[g] || byGroup['Outras']).push(item);
       });
 
-      const preferredOrder = [
-        'power_export_total', 'power_import_total', 'power_total', 'power',
-        'energy_exported_total', 'energy_imported_total', 'energy_kwh', 'energy_wh',
-        'current_export_total', 'current_import_total', 'switch_status', 'voltage', 'current'
-      ];
+      // Dentro de cada grupo, prioriza as métricas “padrão”
+      Object.keys(byGroup).forEach((g) => {
+        byGroup[g].sort((a, b) => {
+          const ia = DEFAULT_METRICS.indexOf(a.metric);
+          const ib = DEFAULT_METRICS.indexOf(b.metric);
+          const ra = ia === -1 ? 999 : ia;
+          const rb = ib === -1 ? 999 : ib;
+          if (ra !== rb) return ra - rb;
+          return a.metric.localeCompare(b.metric);
+        });
+      });
+
+      ['Principais', 'Rede × Solar', 'Por fase', 'Outras'].forEach((g) => {
+        if (!byGroup[g].length) return;
+        const og = document.createElement('optgroup');
+        og.label = g;
+        byGroup[g].forEach((item) => {
+          const opt = document.createElement('option');
+          opt.value = item.metric;
+          const label = METRIC_LABELS[item.metric] || item.metric;
+          opt.textContent = `${label} (${item.count})`;
+          og.appendChild(opt);
+        });
+        select.appendChild(og);
+      });
+
       let chosen = preferMetric && available.some(a => a.metric === preferMetric) ? preferMetric : null;
       if (!chosen) {
-        chosen = preferredOrder.find(m => available.some(a => a.metric === m)) || available[0].metric;
+        chosen = DEFAULT_METRICS.find(m => available.some(a => a.metric === m)) || available[0].metric;
       }
       select.value = chosen;
       return available;
@@ -301,14 +352,14 @@
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
             <div>
               <strong>${periodLabel.charAt(0).toUpperCase() + periodLabel.slice(1)} atual</strong><br>
-              Média: ${cur.mean.toFixed(3)}<br>
-              Mín / Máx: ${cur.min.toFixed(3)} / ${cur.max.toFixed(3)}<br>
+              Média: ${scalePowerStats(cur.mean).toFixed(3)}${isPowerMetricName(metric) ? ' kW' : ''}<br>
+              Mín / Máx: ${scalePowerStats(cur.min).toFixed(3)} / ${scalePowerStats(cur.max).toFixed(3)}${isPowerMetricName(metric) ? ' kW' : ''}<br>
               Amostras: ${cur.count}
             </div>
             <div>
               <strong>${periodLabel.charAt(0).toUpperCase() + periodLabel.slice(1)} anterior</strong><br>
-              Média: ${prev.count ? prev.mean.toFixed(3) : '—'}<br>
-              Mín / Máx: ${prev.count ? (prev.min.toFixed(3) + ' / ' + prev.max.toFixed(3)) : '—'}<br>
+              Média: ${prev.count ? scalePowerStats(prev.mean).toFixed(3) : '—'}${prev.count && isPowerMetricName(metric) ? ' kW' : ''}<br>
+              Mín / Máx: ${prev.count ? (scalePowerStats(prev.min).toFixed(3) + ' / ' + scalePowerStats(prev.max).toFixed(3)) : '—'}${prev.count && isPowerMetricName(metric) ? ' kW' : ''}<br>
               Amostras: ${prev.count}
             </div>
           </div>
@@ -329,9 +380,13 @@
     }
     function fmtW(v) {
       if (v == null || Number.isNaN(Number(v))) return '—';
-      const n = Number(v);
-      if (Math.abs(n) >= 1000) return (n / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 3 }) + ' kW';
-      return n.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' W';
+      return (Number(v) / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + ' kW';
+    }
+    function isPowerMetricName(m) {
+      return m === 'power' || (String(m || '').startsWith('power_') && !String(m).includes('factor'));
+    }
+    function scalePowerStats(v) {
+      return isPowerMetricName(el('metricSelect').value) ? Number(v) / 1000 : Number(v);
     }
 
     async function loadSolarSummary(deviceId, period) {
@@ -395,8 +450,15 @@
           return;
         }
 
-        const available = await loadAvailableMetrics(el('metricSelect').value);
+        const available = await loadAvailableMetrics(
+          el('metricSelect').value === OVERVIEW_VALUE ? null : el('metricSelect').value
+        );
         const metric = el('metricSelect').value;
+
+        if (metric === OVERVIEW_VALUE) {
+          window.location.href = '/api/dashboard';
+          return;
+        }
 
         if (!metric || !available.length) {
           destroyAllCharts();
@@ -419,10 +481,11 @@
           el('statsBox').innerHTML = '<em>Nenhum ponto agregado no período.</em>';
           setStatus('warn', `Sem dados de <strong>${metric}</strong> no período selecionado.`);
         } else {
+          const scaleP = (v) => (isPowerMetricName(metric) ? Number(v) / 1000 : Number(v));
           const labels = timeData.data.map(d => new Date(d.timestamp).toLocaleString());
-          const means = timeData.data.map(d => d.mean);
-          const mins = timeData.data.map(d => d.min);
-          const maxs = timeData.data.map(d => d.max);
+          const means = timeData.data.map(d => scaleP(d.mean));
+          const mins = timeData.data.map(d => scaleP(d.min));
+          const maxs = timeData.data.map(d => scaleP(d.max));
 
           const C = getChartColors();
           chartTemporal = new Chart(el('chartTemporal'), {
@@ -484,26 +547,27 @@
           if (demandData.error) {
             el('demandBox').innerHTML = `<em>${demandData.error}</em>`;
           } else {
-            const unit = metric === 'switch_status' ? '' : ' W';
+            const unit = metric === 'switch_status' ? '' : (isPowerMetricName(metric) ? ' kW' : '');
+            const scale = (v) => (isPowerMetricName(metric) ? Number(v) / 1000 : Number(v));
             el('demandBox').innerHTML = `
               <strong style="color:var(--danger)">Ponta (18h-21h)</strong><br>
-              Máx: ${demandData.peak.max.toFixed(3)}${unit}<br>
-              Média: ${demandData.peak.mean.toFixed(3)}${unit}<br>
+              Máx: ${scale(demandData.peak.max).toFixed(3)}${unit}<br>
+              Média: ${scale(demandData.peak.mean).toFixed(3)}${unit}<br>
               Amostras: ${demandData.peak.samples}<br>
               <hr style="margin:8px 0;border-color:var(--border)">
               <strong style="color:var(--ok)">Fora-ponta</strong><br>
-              Máx: ${demandData.off_peak.max.toFixed(3)}${unit}<br>
-              Média: ${demandData.off_peak.mean.toFixed(3)}${unit}<br>
+              Máx: ${scale(demandData.off_peak.max).toFixed(3)}${unit}<br>
+              Média: ${scale(demandData.off_peak.mean).toFixed(3)}${unit}<br>
               Amostras: ${demandData.off_peak.samples}<br>
               <hr style="margin:8px 0;border-color:var(--border)">
               <strong>Geral</strong><br>
-              Máx: ${demandData.overall.max.toFixed(3)}${unit}<br>
-              Média: ${demandData.overall.mean.toFixed(3)}${unit}
+              Máx: ${scale(demandData.overall.max).toFixed(3)}${unit}<br>
+              Média: ${scale(demandData.overall.mean).toFixed(3)}${unit}
             `;
 
             if (demandData.hourly_average && demandData.hourly_average.length) {
               const hourlyLabels = demandData.hourly_average.map(h => `${h.hour}h`);
-              const hourlyData = demandData.hourly_average.map(h => h.power);
+              const hourlyData = demandData.hourly_average.map(h => scale(h.power));
               const C2 = getChartColors();
               chartHourly = new Chart(el('chartHourly'), {
                 type: 'bar',
@@ -558,6 +622,10 @@
         loadAnalytics();
       });
       el('metricSelect').addEventListener('change', () => {
+        if (el('metricSelect').value === OVERVIEW_VALUE) {
+          window.location.href = '/api/dashboard';
+          return;
+        }
         destroyAllCharts();
         loadAnalytics();
       });

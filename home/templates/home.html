@@ -10,15 +10,18 @@
   <title>PIENG HOME</title>
   <link rel="icon" href="/static/favicon.png" />
   <link rel="apple-touch-icon" href="/static/favicon.png" />
-  <link rel="stylesheet" href="/home/static/home.css?v=8" />
+  <link rel="stylesheet" href="/home/static/home.css?v=23" />
 </head>
 <body>
+  <div class="bg-fixed" aria-hidden="true"></div>
   <header class="top">
     <div>
       <p class="eyebrow">PIENG</p>
       <h1>HOME</h1>
+      <p id="homeLabel" class="home-label" hidden></p>
     </div>
     <div class="top-actions">
+      <button id="btnDevices" class="ghost" type="button">Dispositivos</button>
       <button id="btnRefresh" class="ghost" type="button">Atualizar</button>
       <a class="ghost" href="/api/dashboard">Energy</a>
     </div>
@@ -43,9 +46,29 @@
   <main id="deviceGrid" class="grid" aria-live="polite"></main>
 
   <footer class="foot">
-    Dados reais da conta Tuya · catálogo em <code>home/device_catalog.json</code>
+    Dados reais da conta Tuya · escolha a residência em Dispositivos
   </footer>
 
-  <script src="/home/static/home.js?v=8"></script>
+  <div id="devicesModal" class="modal" hidden>
+    <div class="modal-panel" role="dialog" aria-modal="true" aria-labelledby="devicesModalTitle">
+      <header class="modal-head">
+        <h2 id="devicesModalTitle">Dispositivos</h2>
+        <button type="button" class="ghost modal-close" id="btnCloseDevices" aria-label="Fechar">Fechar</button>
+      </header>
+      <p class="modal-hint">Marque as <b>residências</b> e os <b>aparelhos</b> que devem aparecer na tela principal. O que não estiver marcado não entra na HOME (carrega mais rápido).</p>
+      <div class="modal-actions-row">
+        <button type="button" class="ghost" id="btnEnableAll">Marcar todos</button>
+        <button type="button" class="ghost" id="btnEnableUseful">Só úteis</button>
+        <button type="button" class="ghost" id="btnEnableNone">Limpar</button>
+      </div>
+      <div id="inventoryList" class="inventory-list" tabindex="-1"></div>
+      <footer class="modal-foot">
+        <button type="button" class="ghost" id="btnCancelDevices">Cancelar</button>
+        <button type="button" class="btn btn-on" id="btnSaveDevices">Salvar na tela principal</button>
+      </footer>
+    </div>
+  </div>
+
+  <script src="/home/static/home.js?v=11"></script>
 </body>
 </html>

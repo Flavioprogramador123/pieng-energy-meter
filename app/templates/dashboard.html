@@ -5,7 +5,7 @@
 
 {% block extra_head %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script defer src="/static/js/dashboard.js?v=16"></script>
+  <script defer src="/static/js/dashboard.js?v=20"></script>
 {% endblock %}
 
 {% block content %}
@@ -34,7 +34,10 @@
 
     <button id="refreshBtn">Atualizar</button>
     <button id="configBtn" class="btn-config" title="Configurações">&#9881;</button>
-    <span style="margin-left:auto;color:var(--text-faint)">Atualização automática a cada 30s</span>
+    <span id="liveStatus" class="live-status" title="Os gráficos buscam dados novos na API sem recarregar a página">
+      <span class="live-dot" aria-hidden="true"></span>
+      <span id="liveStatusText">Ao vivo · a cada 30s</span>
+    </span>
   </section>
 
   <section class="time-zoom" id="timeZoomBar" title="Arraste para focar num intervalo específico dentro do período — afeta todos os gráficos e valores abaixo">
@@ -82,6 +85,37 @@
           <input type="checkbox" id="configActive" checked />
           Dispositivo ativo
         </label>
+
+        <div id="dualCtConfig" class="dual-ct-config" hidden>
+          <h3>Entradas CT (dual meter)</h3>
+          <p class="dual-ct-hint">Marque quais CTs estão em uso e se medem injeção (solar) ou carga (rede/consumo). Potência e corrente entram em módulo (|P|, |I|).</p>
+
+          <div class="dual-ct-row">
+            <label class="dual-ct-enable">
+              <input type="checkbox" id="ctAEnabled" />
+              Usar CTA
+            </label>
+            <label class="dual-ct-role">Função CTA
+              <select id="ctARole">
+                <option value="injection">Injeção (solar)</option>
+                <option value="consumption">Carga (consumo)</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="dual-ct-row">
+            <label class="dual-ct-enable">
+              <input type="checkbox" id="ctBEnabled" />
+              Usar CTB
+            </label>
+            <label class="dual-ct-role">Função CTB
+              <select id="ctBRole">
+                <option value="injection">Injeção (solar)</option>
+                <option value="consumption">Carga (consumo)</option>
+              </select>
+            </label>
+          </div>
+        </div>
 
         <div class="btn-group">
           <button type="button" id="testBtn" class="btn-test">Testar Conexão</button>
@@ -170,7 +204,7 @@
     </div>
     <div class="card card-live card-power">
       <h3>Potência</h3>
-      <div class="live-value" id="livePower">-- W</div>
+      <div class="live-value" id="livePower">-- kW</div>
     </div>
     <div class="card card-live card-solar" id="cardSolar" style="display:none">
       <h3>Rede / Solar</h3>
@@ -208,15 +242,15 @@
       <div class="chart-wrap"><canvas id="chartCurrentExport"></canvas></div>
     </div>
     <div class="card card-chart card-chart-power" id="cardPowerCombined">
-      <h3>Potência (W)</h3>
+      <h3>Potência (kW)</h3>
       <div class="chart-wrap"><canvas id="chartPower"></canvas></div>
     </div>
     <div class="card card-chart card-chart-power" id="cardPowerImport" style="display:none">
-      <h3>Potência (W) — Consumo (Rede)</h3>
+      <h3>Potência (kW) — Consumo (Rede)</h3>
       <div class="chart-wrap"><canvas id="chartPowerImport"></canvas></div>
     </div>
     <div class="card card-chart card-chart-power card-injection" id="cardPowerExport" style="display:none">
-      <h3>Potência (W) — Injeção (Solar)</h3>
+      <h3>Potência (kW) — Injeção (Solar)</h3>
       <div class="chart-wrap"><canvas id="chartPowerExport"></canvas></div>
     </div>
     <div class="card card-chart card-chart-energy">
@@ -224,7 +258,7 @@
       <div class="chart-wrap"><canvas id="chartEnergy"></canvas></div>
     </div>
 
-    <div class="card card-chart card-chart-multi" style="grid-column: span 2">
+    <div class="card card-chart card-chart-multi span-2">
       <h3>Monitoramento Completo — Multi-Métrica</h3>
       <div class="chart-wrap chart-wrap-tall"><canvas id="chartMulti"></canvas></div>
       <p id="chartMultiDay" class="chart-data-day"></p>

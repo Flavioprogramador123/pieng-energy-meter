@@ -3,6 +3,9 @@ const state = {
   devices: [],
   busy: new Set(),
   loading: true,
+  homeId: null,
+  homeName: null,
+  meta: null,
 };
 
 function $(sel) { return document.querySelector(sel); }
@@ -303,12 +306,27 @@ function renderSummary() {
   const online = state.devices.filter((d) => d.online === true).length;
   const offline = state.devices.filter((d) => d.online === false).length;
   const acesos = state.devices.filter((d) => d.online !== false && deviceIsOn(d)).length;
+  const ms = state.meta?.elapsed_ms;
+  const cached = state.meta?.cached;
   $("#summary").innerHTML = `
     <span class="stat"><b>${total}</b> aparelhos</span>
     <span class="stat"><span class="dot live"></span><b>${online}</b> online</span>
     <span class="stat"><span class="dot dead"></span><b>${offline}</b> offline</span>
     <span class="stat"><b>${acesos}</b> ligados</span>
+    ${ms != null ? `<span class="stat"><b>${cached ? "cache" : ms + " ms"}</b></span>` : ""}
   `;
+}
+
+function updateHomeLabel() {
+  const el = $("#homeLabel");
+  if (!el) return;
+  if (state.homeName) {
+    el.hidden = false;
+    el.textContent = state.homeName;
+  } else {
+    el.hidden = true;
+    el.textContent = "";
+  }
 }
 
 function render() {
@@ -319,11 +337,12 @@ function render() {
     return;
   }
 
+  updateHomeLabel();
   renderSummary();
   const list = state.devices.filter((d) => state.filter === "all" || d.kind === state.filter);
 
   if (!list.length) {
-    grid.innerHTML = `<div class="empty">Nenhum aparelho neste filtro.<br>Toque em Atualizar ou confira o vínculo na conta Tuya.</div>`;
+    grid.innerHTML = `<div class="empty">Nenhum aparelho neste filtro.<br>Toque em <b>Dispositivos</b> para escolher a residência e o que aparece na tela.</div>`;
     return;
   }
   grid.innerHTML = list.map(renderCard).join("");
@@ -331,16 +350,28 @@ function render() {
 
 /* ---------------- dados e ações ---------------- */
 
-async function loadDevices() {
+async function loadDevices({ force = false } = {}) {
   state.loading = true;
-  setStatus("Lendo aparelhos na Tuya...");
+  setStatus(force ? "Atualizando na Tuya..." : "Lendo aparelhos...");
   render();
   try {
-    const data = await api("/home/api/devices");
+    const q = force ? "?refresh=1" : "";
+    const data = await api(`/home/api/devices${q}`);
     state.devices = data.devices || [];
+    state.homeId = data.home_id ?? null;
+    state.homeName = data.home_name || null;
+    state.meta = {
+      elapsed_ms: data.elapsed_ms,
+      cached: data.cached,
+      scanned: data.scanned,
+    };
     state.loading = false;
     render();
-    setStatus("");
+    const tip = data.cached
+      ? `Cache · ${state.homeName || "residência"}`
+      : `${data.count || 0} aparelhos · ${data.elapsed_ms || "?"} ms`;
+    setStatus(tip);
+    setTimeout(() => setStatus(""), 2200);
   } catch (e) {
     state.loading = false;
     setStatus(String(e.message || e), true);
@@ -477,7 +508,40 @@ function wire() {
     });
   });
 
-  $("#btnRefresh").addEventListener("click", loadDevices);
+  $("#btnRefresh").addEventListener("click", () => loadDevices({ force: true }));
+  $("#btnDevices")?.addEventListener("click", openDevicesModal);
+  $("#btnCloseDevices")?.addEventListener("click", closeDevicesModal);
+  $("#btnCancelDevices")?.addEventListener("click", closeDevicesModal);
+  $("#btnSaveDevices")?.addEventListener("click", saveDevicesModal);
+  $("#btnEnableAll")?.addEventListener("click", () => setInventoryChecks({ homes: true, devices: true }));
+  $("#btnEnableNone")?.addEventListener("click", () => setInventoryChecks({ homes: false, devices: false }));
+  $("#btnEnableUseful")?.addEventListener("click", () => {
+    setInventoryChecks({
+      homes: true,
+      devicePred: (row) => row.dataset.kind !== "other" && row.dataset.auto === "1",
+    });
+  });
+  $("#devicesModal")?.addEventListener("click", (ev) => {
+    if (ev.target === $("#devicesModal")) closeDevicesModal();
+  });
+  $("#inventoryList")?.addEventListener("change", (ev) => {
+    const homeCb = ev.target.closest(".home-check");
+    if (homeCb && ev.target.classList.contains("home-check")) {
+      const section = homeCb.closest(".home-section");
+      const on = homeCb.checked;
+      section?.querySelectorAll(".inv-row input[type=checkbox]").forEach((cb) => {
+        cb.checked = on && (cb.closest(".inv-row")?.dataset.kind !== "other" || on);
+        if (on) {
+          // ao ligar residência, marca só úteis por padrão
+          const row = cb.closest(".inv-row");
+          cb.checked = row?.dataset.kind !== "other" && row?.dataset.auto === "1";
+        } else {
+          cb.checked = false;
+        }
+      });
+      section?.classList.toggle("is-off", !on);
+    }
+  });
 
   $("#deviceGrid").addEventListener("click", async (ev) => {
     const btn = ev.target.closest("[data-act]");
@@ -498,6 +562,128 @@ function wire() {
       render();
     }
   });
+}
+
+/* ---------------- modal Dispositivos ---------------- */
+
+let _modalScrollY = 0;
+
+function lockPageScroll() {
+  _modalScrollY = window.scrollY || window.pageYOffset || 0;
+  document.documentElement.classList.add("modal-open");
+  document.body.style.top = `-${_modalScrollY}px`;
+}
+
+function unlockPageScroll() {
+  document.documentElement.classList.remove("modal-open");
+  document.body.style.top = "";
+  window.scrollTo(0, _modalScrollY);
+}
+
+function closeDevicesModal() {
+  const modal = $("#devicesModal");
+  if (modal) modal.hidden = true;
+  unlockPageScroll();
+}
+
+async function openDevicesModal() {
+  const modal = $("#devicesModal");
+  if (!modal) return;
+  lockPageScroll();
+  modal.hidden = false;
+  setStatus("Carregando residências...");
+  try {
+    await loadInventoryAll();
+    setStatus("");
+    // Foca a lista rolável para o scroll do dedo cair nela, não no fundo
+    $("#inventoryList")?.focus?.({ preventScroll: true });
+  } catch (e) {
+    setStatus(String(e.message || e), true);
+  }
+}
+
+async function loadInventoryAll() {
+  const box = $("#inventoryList");
+  box.innerHTML = `<p class="hint">Carregando inventário de todas as residências...</p>`;
+  const data = await api("/home/api/devices/inventory");
+  const homes = data.homes || [];
+  if (!homes.length) {
+    box.innerHTML = `<p class="hint warn">Nenhuma residência encontrada na conta Tuya.</p>`;
+    return;
+  }
+  box.innerHTML = homes.map((home) => {
+    const devices = home.devices || [];
+    const rows = devices.map((d) => `
+      <label class="inv-row" data-kind="${escapeHtml(d.kind)}" data-auto="${d.auto_show ? "1" : "0"}" data-home="${home.id}">
+        <input type="checkbox" class="device-check" value="${escapeHtml(d.id)}" ${d.enabled ? "checked" : ""} ${home.selected ? "" : ""} />
+        <span class="inv-main">
+          <b>${escapeHtml(d.name)}</b>
+          <small>${escapeHtml(d.kind)} · ${d.online === true ? "online" : d.online === false ? "offline" : "?"}</small>
+        </span>
+      </label>
+    `).join("");
+    return `
+      <section class="home-section ${home.selected ? "" : "is-off"}" data-home-id="${home.id}">
+        <label class="home-head">
+          <input type="checkbox" class="home-check" value="${home.id}" ${home.selected ? "checked" : ""} />
+          <span>
+            <b>${escapeHtml(home.name)}</b>
+            <small>${devices.length} aparelhos na Tuya</small>
+          </span>
+        </label>
+        <div class="home-devices">${rows || `<p class="hint">Sem aparelhos.</p>`}</div>
+      </section>
+    `;
+  }).join("");
+}
+
+function setInventoryChecks({ homes, devices, devicePred } = {}) {
+  if (typeof homes === "boolean") {
+    $all("#inventoryList .home-check").forEach((cb) => {
+      cb.checked = homes;
+      cb.closest(".home-section")?.classList.toggle("is-off", !homes);
+    });
+  }
+  $all("#inventoryList .inv-row").forEach((row) => {
+    const cb = row.querySelector("input.device-check");
+    if (!cb) return;
+    if (typeof devicePred === "function") {
+      const homeOn = row.closest(".home-section")?.querySelector(".home-check")?.checked;
+      cb.checked = !!homeOn && !!devicePred(row);
+    } else if (typeof devices === "boolean") {
+      const homeOn = row.closest(".home-section")?.querySelector(".home-check")?.checked;
+      cb.checked = devices && !!homeOn;
+    }
+  });
+}
+
+async function saveDevicesModal() {
+  const homeIds = $all("#inventoryList .home-check:checked").map((el) => Number(el.value));
+  const ids = [];
+  $all("#inventoryList .home-section").forEach((section) => {
+    const homeOn = section.querySelector(".home-check")?.checked;
+    if (!homeOn) return;
+    section.querySelectorAll("input.device-check:checked").forEach((el) => ids.push(el.value));
+  });
+  if (!homeIds.length) {
+    setStatus("Marque ao menos uma residência para a tela principal.", true);
+    return;
+  }
+  setStatus("Salvando preferências...");
+  try {
+    await api("/home/api/prefs", {
+      method: "PUT",
+      body: JSON.stringify({
+        selected_home_ids: homeIds,
+        enabled_device_ids: ids,
+        skip_offline_status: true,
+      }),
+    });
+    closeDevicesModal();
+    await loadDevices({ force: true });
+  } catch (e) {
+    setStatus(String(e.message || e), true);
+  }
 }
 
 wire();

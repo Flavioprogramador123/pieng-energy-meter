@@ -6,8 +6,51 @@ async function fetchJSON(url) {
 
 function el(id) { return document.getElementById(id); }
 
+/** Potência no banco fica em W; na UI exibimos kW (mais usual). */
+function wattsToKw(w) {
+  if (w == null || Number.isNaN(Number(w))) return null;
+  return Number(w) / 1000;
+}
+function fmtKw(w, digits = 2) {
+  const k = wattsToKw(w);
+  if (k == null) return '—';
+  return `${k.toFixed(digits)} kW`;
+}
+function seriesValuesKw(arr) {
+  return (arr || []).map((x) => wattsToKw(x.value));
+}
+
+function setLiveStatus(mode) {
+  const box = el('liveStatus');
+  const text = el('liveStatusText');
+  if (!box || !text) return;
+  box.classList.remove('is-updating', 'is-paused', 'is-error');
+  if (mode === 'updating') {
+    box.classList.add('is-updating');
+    text.textContent = 'Atualizando gráficos…';
+    return;
+  }
+  if (mode === 'paused') {
+    box.classList.add('is-paused');
+    text.textContent = 'Histórico fixo · auto-atualização pausada';
+    return;
+  }
+  if (mode === 'error') {
+    box.classList.add('is-error');
+    text.textContent = 'Falha ao atualizar · tentando de novo em breve';
+    return;
+  }
+  const now = new Date();
+  const hh = String(now.getHours()).padStart(2, '0');
+  const mm = String(now.getMinutes()).padStart(2, '0');
+  const ss = String(now.getSeconds()).padStart(2, '0');
+  text.textContent = `Ao vivo · ${hh}:${mm}:${ss} · a cada ${AUTO_REFRESH_MS / 1000}s`;
+}
+
 let charts = {};
 let currentPeriod = '1d';
+const AUTO_REFRESH_MS = 30000;
+let loadInFlight = false;
 
 // Zoom de tempo compartilhado por todos os cards (gráficos e valores ao vivo).
 // null = período completo carregado; senão {from, to} em epoch ms, absoluto
@@ -99,6 +142,7 @@ function navigatePeriod(direction) {
   anchorEnd = next >= Date.now() ? null : next;
   resetZoom();
   updatePeriodRangeLabel();
+  if (anchorEnd != null) setLiveStatus('paused');
   loadData();
 }
 
@@ -133,6 +177,22 @@ function toNaiveLocalISOString(ms) {
 function metricsUrl(deviceId, metric, limit = 100) {
   const end = anchorEnd != null ? `&end=${encodeURIComponent(toNaiveLocalISOString(anchorEnd))}` : '';
   return `/api/metrics?device_id=${deviceId}&metric=${metric}&limit=${limit}&period=${currentPeriod}${end}`;
+}
+
+function resetCharts() {
+  Object.keys(charts).forEach((k) => {
+    if (k === '_wiring') return;
+    try { if (charts[k] && typeof charts[k].destroy === 'function') charts[k].destroy(); } catch (_e) { /* ignore */ }
+    charts[k] = null;
+  });
+  charts._wiring = null;
+}
+
+function ensureWiringMode(mode) {
+  if (charts._wiring && charts._wiring !== mode) {
+    resetCharts();
+  }
+  charts._wiring = mode;
 }
 
 function createChart(canvasId, label, color, yRange = {}) {
@@ -212,7 +272,7 @@ function chartScaleOpts(C, beginAtZero = false, yRange = {}) {
   };
 }
 
-function buildPhaseChart(key, canvasId, s1, s2, s3, beginAtZero) {
+function buildPhaseChart(key, canvasId, s1, s2, s3, beginAtZero, asKw = false) {
   const canvas = el(canvasId);
   if (!canvas) return;
   const C = getChartColors();
@@ -220,6 +280,7 @@ function buildPhaseChart(key, canvasId, s1, s2, s3, beginAtZero) {
   const s2r = (s2 || []).slice().reverse();
   const s3r = (s3 || []).slice().reverse();
   const labels = s1r.map(x => new Date(x.timestamp).toLocaleTimeString());
+  const scale = (v) => (asKw ? wattsToKw(v) : Number(v));
 
   if (!charts[key] || !charts[key].data.datasets[1]) {
     if (charts[key]) charts[key].destroy();
@@ -228,9 +289,9 @@ function buildPhaseChart(key, canvasId, s1, s2, s3, beginAtZero) {
       data: {
         labels,
         datasets: [
-          lineDataset('L1', s1r.map(x => x.value), C.phaseL1),
-          lineDataset('L2', s2r.map(x => x.value), C.phaseL2),
-          lineDataset('L3', s3r.map(x => x.value), C.phaseL3)
+          lineDataset('L1', s1r.map(x => scale(x.value)), C.phaseL1),
+          lineDataset('L2', s2r.map(x => scale(x.value)), C.phaseL2),
+          lineDataset('L3', s3r.map(x => scale(x.value)), C.phaseL3)
         ]
       },
       options: {
@@ -242,9 +303,9 @@ function buildPhaseChart(key, canvasId, s1, s2, s3, beginAtZero) {
     });
   } else {
     charts[key].data.labels = labels;
-    charts[key].data.datasets[0].data = s1r.map(x => x.value);
-    charts[key].data.datasets[1].data = s2r.map(x => x.value);
-    charts[key].data.datasets[2].data = s3r.map(x => x.value);
+    charts[key].data.datasets[0].data = s1r.map(x => scale(x.value));
+    charts[key].data.datasets[1].data = s2r.map(x => scale(x.value));
+    charts[key].data.datasets[2].data = s3r.map(x => scale(x.value));
     charts[key].update('none');
   }
 }
@@ -285,13 +346,20 @@ function setIntegrityBanner(html, show) {
 async function loadData() {
   const deviceId = el('deviceSelect').value;
   if (!deviceId) return;
+  if (loadInFlight) return;
+  loadInFlight = true;
+  setLiveStatus('updating');
 
   try {
-    // Detectar se é medidor trifásico (capacidade do device, não do período/janela
-    // navegada — sem isso, navegar pra um dia sem dados faria cair no branch
-    // monofásico por engano).
-    const voltage_l1_check = await fetchJSON(`/api/metrics?device_id=${deviceId}&metric=voltage_l1&limit=1`);
-    const isThreePhase = voltage_l1_check.length > 0;
+    // Trifásico de verdade: precisa de ao menos L1 e L2.
+    // Só voltage_l1 NÃO basta (medidor monofásico / dual não usa L2/L3).
+    const [voltage_l1_check, voltage_l2_check, voltage_check] = await Promise.all([
+      fetchJSON(`/api/metrics?device_id=${deviceId}&metric=voltage_l1&limit=1`),
+      fetchJSON(`/api/metrics?device_id=${deviceId}&metric=voltage_l2&limit=1`),
+      fetchJSON(`/api/metrics?device_id=${deviceId}&metric=voltage&limit=1`)
+    ]);
+    const isThreePhase = voltage_l1_check.length > 0 && voltage_l2_check.length > 0;
+    const wiringMode = isThreePhase ? 'three' : 'single';
 
     let voltageData, currentData, powerData;
 
@@ -357,14 +425,24 @@ async function loadData() {
       solarData = { pExport, pImport, iExport, iImport, eExported, eImported };
 
     } else {
-      // Buscar métricas monofásicas (formato antigo) + switch Tuya
-      const [vData, iData, pData, eData, alarmsData, swData] = await Promise.all([
-        fetchJSON(metricsUrl(deviceId, 'voltage', chartLimit)),
+      // Monofásico / dual meter: tensão de linha + potências/energias padrão
+      // (e totais Rede×Solar quando o poller grava import/export).
+      const [vData, iData, pData, eData, alarmsData, swData,
+             pExport, pImport, iExport, iImport, eExported, eImported] = await Promise.all([
+        voltage_check.length
+          ? fetchJSON(metricsUrl(deviceId, 'voltage', chartLimit))
+          : fetchJSON(metricsUrl(deviceId, 'voltage_l1', chartLimit)),
         fetchJSON(metricsUrl(deviceId, 'current', chartLimit)),
         fetchJSON(metricsUrl(deviceId, 'power', chartLimit)),
         fetchJSON(metricsUrl(deviceId, 'energy_wh', chartLimit)),
         fetchJSON(`/api/alarms/events?device_id=${deviceId}&limit=20`),
-        fetchJSON(metricsUrl(deviceId, 'switch_status', chartLimit))
+        fetchJSON(metricsUrl(deviceId, 'switch_status', chartLimit)),
+        fetchJSON(metricsUrl(deviceId, 'power_export_total', chartLimit)),
+        fetchJSON(metricsUrl(deviceId, 'power_import_total', chartLimit)),
+        fetchJSON(metricsUrl(deviceId, 'current_export_total', chartLimit)),
+        fetchJSON(metricsUrl(deviceId, 'current_import_total', chartLimit)),
+        fetchJSON(metricsUrl(deviceId, 'energy_exported_total', chartLimit)),
+        fetchJSON(metricsUrl(deviceId, 'energy_imported_total', chartLimit))
       ]);
       voltageData = vData;
       currentData = iData;
@@ -373,21 +451,28 @@ async function loadData() {
       alarms = alarmsData;
       switchData = swData;
       window.phaseData = null;
+      if (pExport.length || pImport.length) {
+        solarData = { pExport, pImport, iExport, iImport, eExported, eImported };
+      }
     }
 
     fullRange = computeFullRange([voltageData, powerData, energyData]);
     updateZoomLabel();
 
     rawCache = {
-      deviceId, isThreePhase,
+      deviceId, isThreePhase, wiringMode,
       voltageData, currentData, powerData, energyData, alarms, switchData,
       phaseData: isThreePhase ? window.phaseData : null,
       solarData
     };
 
     renderFromCache();
+    setLiveStatus('live');
   } catch (error) {
     console.error('Erro ao carregar dados:', error);
+    setLiveStatus('error');
+  } finally {
+    loadInFlight = false;
   }
 }
 
@@ -395,6 +480,8 @@ function renderFromCache() {
   if (!rawCache) return;
   const C = getChartColors();
   const { deviceId, isThreePhase, alarms } = rawCache;
+  const wiringMode = rawCache.wiringMode || (isThreePhase ? 'three' : 'single');
+  ensureWiringMode(wiringMode);
 
   try {
     const voltageData = filterWindow(rawCache.voltageData);
@@ -413,7 +500,7 @@ function renderFromCache() {
     }
 
     const cardSolar = el('cardSolar');
-    if (isThreePhase && rawCache.solarData && cardSolar) {
+    if (rawCache.solarData && cardSolar) {
       const sd = rawCache.solarData;
       const pExport = filterWindow(sd.pExport);
       const pImport = filterWindow(sd.pImport);
@@ -430,8 +517,8 @@ function renderFromCache() {
         const kwhExported = eExported[0]?.value ?? 0;
         const kwhImported = eImported[0]?.value ?? 0;
         el('liveGridSolar').innerHTML = `
-          <span style="color:var(--warning,#f0a020)">Solar:</span> ${wPower.toFixed(0)}W / ${aExport.toFixed(2)}A<br>
-          <span style="color:var(--text-muted)">Rede:</span> ${wImport.toFixed(0)}W / ${aImport.toFixed(2)}A<br>
+          <span style="color:var(--warning,#f0a020)">Solar:</span> ${fmtKw(wPower, 2)} / ${aExport.toFixed(2)}A<br>
+          <span style="color:var(--text-muted)">Rede:</span> ${fmtKw(wImport, 2)} / ${aImport.toFixed(2)}A<br>
           <span style="font-size:11px;color:var(--text-faint)">Acum.: ${kwhExported.toFixed(2)} kWh injet. / ${kwhImported.toFixed(2)} kWh cons.</span>
         `;
       } else {
@@ -550,10 +637,10 @@ function renderFromCache() {
         Métrica real disponível: <code>switch_status</code> (${switchData.length} leituras).
       `;
     } else if (isThreePhase && window.phaseData) {
-      // Helper para formatar com indicador de inatividade
+      // formatPhaseValue: para potência passe valor já em kW e unit 'kW'
       const formatPhaseValue = (val, unit, decimals = 1) => {
         const value = val || 0;
-        const isInactive = Math.abs(value) < 0.01;
+        const isInactive = Math.abs(value) < (unit === 'kW' ? 0.01 : 0.01);
         const color = isInactive ? 'var(--text-faint)' : 'inherit';
         const label = isInactive ? '(inativo)' : '';
         return `<span style="color:${color}">${value.toFixed(decimals)}${unit} ${label}</span>`;
@@ -579,10 +666,10 @@ function renderFromCache() {
       const p2 = window.phaseData.p2[0]?.value || 0;
       const p3 = window.phaseData.p3[0]?.value || 0;
       el('livePower').innerHTML = `
-        <span style="color:var(--phase-l1)">L1:</span> ${formatPhaseValue(p1, 'W', 0)}<br>
-        <span style="color:var(--phase-l2)">L2:</span> ${formatPhaseValue(p2, 'W', 0)}<br>
-        <span style="color:var(--phase-l3)">L3:</span> ${formatPhaseValue(p3, 'W', 0)}<br>
-        <strong>Total: ${pNum.toFixed(0)}W</strong>
+        <span style="color:var(--phase-l1)">L1:</span> ${formatPhaseValue(wattsToKw(p1), 'kW', 2)}<br>
+        <span style="color:var(--phase-l2)">L2:</span> ${formatPhaseValue(wattsToKw(p2), 'kW', 2)}<br>
+        <span style="color:var(--phase-l3)">L3:</span> ${formatPhaseValue(wattsToKw(p3), 'kW', 2)}<br>
+        <strong>Total: ${fmtKw(pNum, 2)}</strong>
       `;
       el('liveEnergy').textContent = (e_kwh != null ? e_kwh.toFixed(3) : '0.000') + ' kWh';
       el('livePF').textContent = power_factor != null ? power_factor.toFixed(3) : '--';
@@ -590,22 +677,28 @@ function renderFromCache() {
       el('averagesBox').innerHTML = `
         <strong>Tensão média:</strong> ${(avgV ?? 0).toFixed(2)} V<br>
         <strong>Corrente média:</strong> ${(avgI ?? 0).toFixed(3)} A<br>
-        <strong>Potência média:</strong> ${(avgP ?? 0).toFixed(2)} W<br>
-        <strong>Pot. Aparente:</strong> ${apparent_power.toFixed(2)} VA
+        <strong>Potência média:</strong> ${fmtKw(avgP, 2)}<br>
+        <strong>Pot. Aparente:</strong> ${(apparent_power / 1000).toFixed(2)} kVA
       `;
     } else {
-      // Exibir valores únicos para monofásicos
-      el('liveVoltage').textContent = v != null ? (vNum.toFixed(1) + ' V') : 'N/A';
-      el('liveCurrent').textContent = i != null ? (iNum.toFixed(3) + ' A') : 'N/A';
-      el('livePower').textContent = p != null ? (pNum.toFixed(1) + ' W') : 'N/A';
+      // Exibir valores únicos para monofásicos (Linha)
+      el('liveVoltage').innerHTML = v != null
+        ? `<span style="color:var(--phase-l1)">Linha:</span> ${vNum.toFixed(1)} V`
+        : 'N/A';
+      el('liveCurrent').innerHTML = i != null
+        ? `<span style="color:var(--phase-l1)">Linha:</span> ${iNum.toFixed(3)} A`
+        : 'N/A';
+      el('livePower').innerHTML = p != null
+        ? `<span style="color:var(--phase-l1)">Linha:</span> ${fmtKw(pNum, 2)}`
+        : 'N/A';
       el('liveEnergy').textContent = e_kwh != null ? (e_kwh.toFixed(3) + ' kWh') : 'N/A';
       el('livePF').textContent = power_factor != null ? power_factor.toFixed(3) : 'N/A';
-      el('liveCost').textContent = cost != null ? ('R$ ' + cost.toFixed(2)) : 'N/A';
+      el('liveCost').textContent = cost != null ? ('R$ ' + cost.toFixed(2)) : 'R$ --';
       el('averagesBox').innerHTML = `
-        <strong>Tensão média:</strong> ${(avgV ?? 0).toFixed(2)} V<br>
+        <strong>Tensão média (Linha):</strong> ${(avgV ?? 0).toFixed(2)} V<br>
         <strong>Corrente média:</strong> ${(avgI ?? 0).toFixed(3)} A<br>
-        <strong>Potência média:</strong> ${(avgP ?? 0).toFixed(2)} W<br>
-        <strong>Pot. Aparente:</strong> ${apparent_power.toFixed(2)} VA
+        <strong>Potência média:</strong> ${fmtKw(avgP, 2)}<br>
+        <strong>Pot. Aparente:</strong> ${(apparent_power / 1000).toFixed(2)} kVA
       `;
     }
 
@@ -696,7 +789,7 @@ function renderFromCache() {
         charts.current.update('none');
       }
 
-      // Gráfico de Potências (3 fases)
+      // Gráfico de Potências (3 fases) — eixo em kW
       if (!charts.power || !charts.power.data.datasets[1]) {
         if (charts.power) charts.power.destroy();
         charts.power = new Chart(el('chartPower'), {
@@ -704,9 +797,9 @@ function renderFromCache() {
           data: {
             labels: pLabels,
             datasets: [
-              lineDataset('L1', p1_series.map(x => x.value), C.phaseL1),
-              lineDataset('L2', p2_series.map(x => x.value), C.phaseL2),
-              lineDataset('L3', p3_series.map(x => x.value), C.phaseL3)
+              lineDataset('L1', seriesValuesKw(p1_series), C.phaseL1),
+              lineDataset('L2', seriesValuesKw(p2_series), C.phaseL2),
+              lineDataset('L3', seriesValuesKw(p3_series), C.phaseL3)
             ]
           },
           options: {
@@ -718,9 +811,9 @@ function renderFromCache() {
         });
       } else {
         charts.power.data.labels = pLabels;
-        charts.power.data.datasets[0].data = p1_series.map(x => x.value);
-        charts.power.data.datasets[1].data = p2_series.map(x => x.value);
-        charts.power.data.datasets[2].data = p3_series.map(x => x.value);
+        charts.power.data.datasets[0].data = seriesValuesKw(p1_series);
+        charts.power.data.datasets[1].data = seriesValuesKw(p2_series);
+        charts.power.data.datasets[2].data = seriesValuesKw(p3_series);
         charts.power.update('none');
       }
 
@@ -739,8 +832,8 @@ function renderFromCache() {
       el('cardPowerExport').style.display = hasSplit ? '' : 'none';
 
       if (hasSplit) {
-        buildPhaseChart('powerImport', 'chartPowerImport', pd.pImpL1, pd.pImpL2, pd.pImpL3, true);
-        buildPhaseChart('powerExport', 'chartPowerExport', pd.pExpL1, pd.pExpL2, pd.pExpL3, true);
+        buildPhaseChart('powerImport', 'chartPowerImport', pd.pImpL1, pd.pImpL2, pd.pImpL3, true, true);
+        buildPhaseChart('powerExport', 'chartPowerExport', pd.pExpL1, pd.pExpL2, pd.pExpL3, true, true);
         buildPhaseChart('currentImport', 'chartCurrentImport', pd.iImpL1, pd.iImpL2, pd.iImpL3, true);
         buildPhaseChart('currentExport', 'chartCurrentExport', pd.iExpL1, pd.iExpL2, pd.iExpL3, true);
       } else {
@@ -750,7 +843,7 @@ function renderFromCache() {
       }
 
     } else {
-      // Gráficos monofásicos (formato original)
+      // Gráficos monofásicos — uma série "Linha" (nunca reaproveitar datasets L1/L2/L3)
       ['cardCurrentImport', 'cardCurrentExport', 'cardPowerImport', 'cardPowerExport'].forEach((id) => {
         el(id).style.display = 'none';
       });
@@ -764,15 +857,23 @@ function renderFromCache() {
       const iLabels = iSeries.map(x => new Date(x.timestamp).toLocaleTimeString());
       const pLabels = pSeries.map(x => new Date(x.timestamp).toLocaleTimeString());
 
-      if (!charts.voltage) {
-        charts.voltage = createChart('chartVoltage', 'Tensão (V)', C.voltage, { min: 0, max: 270 });
-        charts.current = createChart('chartCurrent', 'Corrente (A)', C.current);
-        charts.power = createChart('chartPower', 'Potência (W)', C.power);
+      if (!charts.voltage || (charts.voltage.data.datasets && charts.voltage.data.datasets.length !== 1)) {
+        if (charts.voltage) { charts.voltage.destroy(); charts.voltage = null; }
+        if (charts.current) { charts.current.destroy(); charts.current = null; }
+        if (charts.power) { charts.power.destroy(); charts.power = null; }
+        charts.voltage = createChart('chartVoltage', 'Linha (V)', C.voltage, { min: 0, max: 270 });
+        charts.current = createChart('chartCurrent', 'Linha (A)', C.current);
+        charts.power = createChart('chartPower', 'Linha (kW)', C.power);
+        if (charts.voltage?.options?.plugins?.legend) {
+          charts.voltage.options.plugins.legend.display = true;
+          charts.current.options.plugins.legend.display = true;
+          charts.power.options.plugins.legend.display = true;
+        }
       }
 
       updateChart(charts.voltage, vLabels, vSeries.map(x => x.value));
       updateChart(charts.current, iLabels, iSeries.map(x => x.value));
-      updateChart(charts.power, pLabels, pSeries.map(x => x.value));
+      updateChart(charts.power, pLabels, seriesValuesKw(pSeries));
     }
 
     // Gráfico de Energia (igual para ambos)
@@ -807,7 +908,7 @@ function renderFromCache() {
     }
     const multiDatasets = [];
     if (vSeries.length) {
-      multiDatasets.push(lineDataset('Tensão (V)', vSeries.slice(0, 80).map(x => x.value), C.voltage, {
+      multiDatasets.push(lineDataset(isThreePhase ? 'Tensão L1 (V)' : 'Tensão Linha (V)', vSeries.slice(0, 80).map(x => x.value), C.voltage, {
         more: { yAxisID: 'yV' }
       }));
     }
@@ -817,7 +918,7 @@ function renderFromCache() {
       }));
     }
     if (pSeries.length) {
-      multiDatasets.push(lineDataset('Potência (W)', pSeries.slice(0, 80).map(x => x.value), C.power, {
+      multiDatasets.push(lineDataset('Potência (kW)', seriesValuesKw(pSeries.slice(0, 80)), C.power, {
         more: { yAxisID: 'yP' }
       }));
     }
@@ -845,37 +946,46 @@ function renderFromCache() {
       },
       yV: { type: 'linear', position: 'left', display: vSeries.length > 0, min: 0, max: 270, title: { display: true, text: 'V', color: C.voltage, font: { size: 11 } }, ticks: axisTick(C.voltage), grid: { color: C.grid, drawBorder: false } },
       yI: { type: 'linear', position: 'right', display: iSeries.length > 0, title: { display: true, text: 'A', color: C.current, font: { size: 11 } }, ticks: axisTick(C.current), grid: { drawOnChartArea: false } },
-      yP: { type: 'linear', position: 'right', display: pSeries.length > 0 || eSeries.length > 0, title: { display: true, text: 'W', color: C.power, font: { size: 11 } }, ticks: axisTick(C.power), grid: { drawOnChartArea: false } },
+      yP: { type: 'linear', position: 'right', display: pSeries.length > 0 || eSeries.length > 0, title: { display: true, text: 'kW', color: C.power, font: { size: 11 } }, ticks: axisTick(C.power), grid: { drawOnChartArea: false } },
       ySw: { type: 'linear', position: 'right', display: swSeries.length > 0, min: 0, max: 1.2, title: { display: true, text: 'SW', color: C.switch, font: { size: 11 } }, ticks: { color: C.switch, stepSize: 1, font: { size: 10 } }, grid: { drawOnChartArea: false } }
     };
 
-    if (charts.multi) {
-      try { charts.multi.destroy(); } catch (_) {}
-      charts.multi = null;
-    }
-
-    const multiCanvas = el('chartMulti');
-    if (multiCanvas && multiDatasets.length) {
-      charts.multi = new Chart(multiCanvas, {
-        type: 'line',
-        data: { labels: multiLabels, datasets: multiDatasets },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          animation: { duration: 280 },
-          interaction: { mode: 'index', intersect: false },
-          plugins: {
-            legend: { display: true, labels: { color: C.text, boxWidth: 12, font: { size: 11 } } },
-            title: { display: false },
-            tooltip: tooltipConfig()
-          },
-          scales: multiScales
-        }
+    if (charts.multi && charts.multi.data && charts.multi.data.datasets.length === multiDatasets.length) {
+      charts.multi.data.labels = multiLabels;
+      multiDatasets.forEach((ds, i) => {
+        charts.multi.data.datasets[i].data = ds.data;
+        charts.multi.data.datasets[i].label = ds.label;
       });
-    } else if (multiCanvas) {
-      const ctx = multiCanvas.getContext('2d');
-      if (ctx) {
-        ctx.clearRect(0, 0, multiCanvas.width, multiCanvas.height);
+      charts.multi.options.scales = multiScales;
+      charts.multi.update('none');
+    } else {
+      if (charts.multi) {
+        try { charts.multi.destroy(); } catch (_) {}
+        charts.multi = null;
+      }
+      const multiCanvas = el('chartMulti');
+      if (multiCanvas && multiDatasets.length) {
+        charts.multi = new Chart(multiCanvas, {
+          type: 'line',
+          data: { labels: multiLabels, datasets: multiDatasets },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            animation: { duration: 280 },
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+              legend: { display: true, labels: { color: C.text, boxWidth: 12, font: { size: 11 } } },
+              title: { display: false },
+              tooltip: tooltipConfig()
+            },
+            scales: multiScales
+          }
+        });
+      } else if (multiCanvas) {
+        const ctx = multiCanvas.getContext('2d');
+        if (ctx) {
+          ctx.clearRect(0, 0, multiCanvas.width, multiCanvas.height);
+        }
       }
     }
 
@@ -908,6 +1018,29 @@ function updateDeviceStatus() {
   indicator.title = isActive ? 'Dispositivo em operação' : 'Dispositivo desativado';
 }
 
+function isDualMeterDevice(device) {
+  const cfg = device?.config || {};
+  const product = String(cfg.product_name || '').toLowerCase();
+  return Boolean(cfg.channel_roles) || product.includes('dual');
+}
+
+function fillDualCtForm(cfg) {
+  const roles = cfg?.channel_roles || {};
+  const aOn = roles.a === 'injection' || roles.a === 'consumption';
+  const bOn = roles.b === 'injection' || roles.b === 'consumption';
+  el('ctAEnabled').checked = aOn;
+  el('ctBEnabled').checked = bOn;
+  el('ctARole').value = aOn ? roles.a : 'injection';
+  el('ctBRole').value = bOn ? roles.b : 'consumption';
+  el('ctARole').disabled = !aOn;
+  el('ctBRole').disabled = !bOn;
+}
+
+function syncDualCtRoleDisabled() {
+  el('ctARole').disabled = !el('ctAEnabled').checked;
+  el('ctBRole').disabled = !el('ctBEnabled').checked;
+}
+
 function openConfigModal() {
   const select = el('deviceSelect');
   const deviceId = select.value;
@@ -925,6 +1058,13 @@ function openConfigModal() {
         el('configBaudrate').value = device.config?.baudrate || 9600;
         el('configDriver').value = device.config?.driver || 'pzem004t';
         el('configActive').checked = device.active;
+
+        const dual = isDualMeterDevice(device);
+        el('dualCtConfig').hidden = !dual;
+        if (dual) fillDualCtForm(device.config || {});
+
+        el('configModal').dataset.deviceType = device.device_type || '';
+        el('configModal').dataset.deviceId = String(device.id);
         el('configModal').style.display = 'block';
       }
     });
@@ -960,24 +1100,46 @@ async function saveConfig(e) {
   e.preventDefault();
   const deviceId = el('deviceSelect').value;
 
-  const config = {
-    name: el('configName').value,
-    active: el('configActive').checked,
-    config: {
-      port: el('configPort').value,
-      slave_id: parseInt(el('configSlaveId').value),
-      baudrate: parseInt(el('configBaudrate').value),
-      driver: el('configDriver').value,
-      base: 0,
-      count: 5
-    }
-  };
-
   try {
+    const devices = await fetch('/api/devices').then(r => r.json());
+    const device = devices.find(d => d.id == deviceId);
+    if (!device) {
+      alert('❌ Dispositivo não encontrado');
+      return;
+    }
+
+    // Merge: nunca apagar config Tuya (device_id, category, channel_roles…)
+    const merged = { ...(device.config || {}) };
+    const isTuya = (device.device_type || '').toLowerCase() === 'tuya';
+
+    if (!isTuya) {
+      merged.port = el('configPort').value;
+      merged.slave_id = parseInt(el('configSlaveId').value, 10);
+      merged.baudrate = parseInt(el('configBaudrate').value, 10);
+      merged.driver = el('configDriver').value;
+      merged.base = merged.base ?? 0;
+      merged.count = merged.count ?? 5;
+    }
+
+    if (!el('dualCtConfig').hidden) {
+      merged.channel_roles = {
+        a: el('ctAEnabled').checked ? el('ctARole').value : null,
+        b: el('ctBEnabled').checked ? el('ctBRole').value : null,
+      };
+      merged.phases = 1;
+      merged.wiring = 'single';
+    }
+
+    const payload = {
+      name: el('configName').value,
+      active: el('configActive').checked,
+      config: merged,
+    };
+
     const response = await fetch(`/api/devices/${deviceId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(config)
+      body: JSON.stringify(payload)
     });
 
     if (response.ok) {
@@ -1091,6 +1253,7 @@ window.addEventListener('DOMContentLoaded', () => {
   el('periodTodayBtn').addEventListener('click', () => {
     resetPeriodNav();
     updatePeriodRangeLabel();
+    setLiveStatus('live');
     loadData();
   });
   el('zoomResetBtn').addEventListener('click', resetZoom);
@@ -1098,6 +1261,8 @@ window.addEventListener('DOMContentLoaded', () => {
   el('configModal').querySelector('.close').addEventListener('click', closeConfigModal);
   el('testBtn').addEventListener('click', testConnection);
   el('configForm').addEventListener('submit', saveConfig);
+  el('ctAEnabled').addEventListener('change', syncDualCtRoleDisabled);
+  el('ctBEnabled').addEventListener('change', syncDualCtRoleDisabled);
 
   el('addAlarmBtn').addEventListener('click', openAlarmModal);
   el('alarmForm').addEventListener('submit', createAlarmRule);
@@ -1130,8 +1295,13 @@ window.addEventListener('DOMContentLoaded', () => {
   loadAlarmRules();
   loadData();
   setInterval(() => {
-    if (anchorEnd == null) loadData(); // não faz sentido "auto-atualizar" um período passado fixo
-  }, 30000);
+    // Período passado fixo: não auto-atualiza (evita “pular” o histórico).
+    if (anchorEnd != null) {
+      setLiveStatus('paused');
+      return;
+    }
+    loadData();
+  }, AUTO_REFRESH_MS);
 });
 
 

@@ -349,7 +349,9 @@
       "product": "Solar WIFI dual meter",
       "status_source": "shadow",
       "show_by_default": true,
-      "notes": "getstatus/functions vazios. Instrução padrão sem mapeamento (-). DPs reais via shadow. Typos oficiais Tuya: energy_forword_*, energy_reserse_b.",
+      "phases": 1,
+      "wiring": "single",
+      "notes": "Monofásico com 2 CTs (a/b), NÃO trifásico. getstatus/functions vazios — usar shadow. channel_roles no Device.config do Energy Meter. Typos oficiais Tuya: energy_forword_*, energy_reserse_b.",
       "dp_codes": [
         "power_a", "direction_a", "direction_b", "power_b",
         "energy_forword_a", "energy_reverse_a", "energy_forword_b", "energy_reserse_b",

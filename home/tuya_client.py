@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import re
 import socket
+import time
+import threading
 from concurrent.futures import ThreadPoolExecutor
 from functools import lru_cache
 from pathlib import Path
@@ -13,6 +15,7 @@ import tinytuya
 from dotenv import load_dotenv
 
 from app.core.config import settings
+from home import prefs as home_prefs
 
 # Evita falha de allowlist IPv6 na Tuya (só IPv4)
 _orig_getaddrinfo = socket.getaddrinfo
@@ -405,7 +408,12 @@ def _safe_controls(status: dict[str, Any], entry: dict[str, Any], kind: str) -> 
     return controls
 
 
-def _build_home_device(cloud: tinytuya.Cloud, device: dict[str, Any]) -> dict[str, Any] | None:
+def _build_home_device(
+    cloud: tinytuya.Cloud,
+    device: dict[str, Any],
+    *,
+    skip_status: bool = False,
+) -> dict[str, Any] | None:
     device_id = device.get("id")
     if not device_id:
         return None
@@ -417,7 +425,7 @@ def _build_home_device(cloud: tinytuya.Cloud, device: dict[str, Any]) -> dict[st
     product_name = entry.get("product") or product_name or device.get("product_name")
     kind = classify_device(name, category, device_id, product_name)
     card = entry.get("card") or kind
-    smap = _device_status_map(cloud, device_id, entry)
+    smap: dict[str, Any] = {} if skip_status else _device_status_map(cloud, device_id, entry)
     channels = switch_channels_for(smap, kind, entry)
     sw_code = channels[0]["code"] if channels else switch_code_for(smap, kind)
     on = None
@@ -485,6 +493,7 @@ def _build_home_device(cloud: tinytuya.Cloud, device: dict[str, Any]) -> dict[st
         "forbidden": entry.get("forbidden") or [],
         "control": entry.get("control"),
         "gateway_id": device.get("gateway_id") or entry.get("gateway_id"),
+        "home_id": device.get("home_id"),
         "catalog": {
             "label": entry.get("label"),
             "notes": entry.get("notes"),
@@ -552,6 +561,219 @@ def _find_device_meta(cloud: tinytuya.Cloud, device_id: str) -> dict[str, Any] |
     return None
 
 
+# ---- Residências (homes/spaces) + cache da grade ----
+
+_LIST_CACHE: dict[str, Any] = {"key": None, "at": 0.0, "payload": None}
+_LIST_LOCK = threading.Lock()
+
+
+def invalidate_devices_cache() -> None:
+    with _LIST_LOCK:
+        _LIST_CACHE["key"] = None
+        _LIST_CACHE["at"] = 0.0
+        _LIST_CACHE["payload"] = None
+
+
+_HOMES_CACHE: dict[str, Any] = {"at": 0.0, "homes": None}
+_HOMES_TTL = 120.0
+
+
+def list_tuya_homes(*, force_refresh: bool = False) -> list[dict[str, Any]]:
+    """Lista residências da conta via space child + detalhe + contagem de devices."""
+    now = time.time()
+    if not force_refresh and _HOMES_CACHE["homes"] is not None and (now - float(_HOMES_CACHE["at"] or 0)) < _HOMES_TTL:
+        return list(_HOMES_CACHE["homes"])
+
+    cloud = get_cloud()
+    space = cloud.cloudrequest("/v2.0/cloud/space/child")
+    ids = ((space or {}).get("result") or {}).get("data") or []
+    homes: list[dict[str, Any]] = []
+    for sid in ids:
+        try:
+            sid_int = int(sid)
+        except (TypeError, ValueError):
+            continue
+        name = str(sid_int)
+        try:
+            detail = cloud.cloudrequest(f"/v2.0/cloud/space/{sid_int}")
+            if isinstance(detail, dict) and isinstance(detail.get("result"), dict):
+                name = detail["result"].get("name") or name
+        except Exception:
+            pass
+        count = 0
+        try:
+            devices = cloud.cloudrequest(f"/v1.0/homes/{sid_int}/devices")
+            if isinstance(devices, dict) and isinstance(devices.get("result"), list):
+                count = len(devices["result"])
+        except Exception:
+            pass
+        homes.append({"id": sid_int, "name": name, "device_count": count})
+    homes.sort(key=lambda h: h["name"].lower())
+    _HOMES_CACHE["at"] = now
+    _HOMES_CACHE["homes"] = homes
+    return list(homes)
+
+
+def _pick_default_home_id(homes: list[dict[str, Any]]) -> int | None:
+    if not homes:
+        return None
+    for h in homes:
+        n = (h.get("name") or "").lower()
+        if "minha casa" in n or n.strip() in {"casa", "home"}:
+            return int(h["id"])
+    return int(max(homes, key=lambda x: x.get("device_count") or 0)["id"])
+
+
+def resolve_selected_home_ids(prefs: dict[str, Any] | None = None) -> list[int]:
+    """Residências que entram na tela principal (pode ser várias)."""
+    p = prefs or home_prefs.load_prefs()
+    raw = p.get("selected_home_ids")
+    if isinstance(raw, list) and raw:
+        out: list[int] = []
+        for item in raw:
+            try:
+                out.append(int(item))
+            except (TypeError, ValueError):
+                continue
+        if out:
+            return out
+
+    homes = list_tuya_homes()
+    picked = _pick_default_home_id(homes)
+    if picked is None:
+        return []
+    try:
+        home_prefs.save_prefs(selected_home_ids=[picked])
+    except Exception:
+        pass
+    return [picked]
+
+
+def resolve_selected_home_id(prefs: dict[str, Any] | None = None) -> int | None:
+    """Compat: primeira residência selecionada."""
+    ids = resolve_selected_home_ids(prefs)
+    return ids[0] if ids else None
+
+
+def _devices_for_home(cloud: tinytuya.Cloud, home_id: int) -> list[dict[str, Any]]:
+    """Devices de uma residência. A API já traz `online` — evita batch em toda a conta."""
+    resp = cloud.cloudrequest(f"/v1.0/homes/{home_id}/devices")
+    items = (resp or {}).get("result") if isinstance(resp, dict) else None
+    if not isinstance(items, list):
+        return []
+    out: list[dict[str, Any]] = []
+    for item in items:
+        if not isinstance(item, dict) or not item.get("id"):
+            continue
+        row = dict(item)
+        row["home_id"] = home_id
+        if "online" in row:
+            row["online"] = bool(row["online"])
+        out.append(row)
+    return out
+
+
+def _should_show_device(
+    raw: dict[str, Any],
+    *,
+    include_other: bool,
+    enabled_ids: set[str] | None,
+) -> bool:
+    name = (raw.get("name") or "").strip()
+    category = raw.get("category") or ""
+    device_id = str(raw.get("id") or "")
+    product_name = (raw.get("product_name") or "").strip() or None
+    kind = classify_device(name, category, device_id, product_name)
+    entry = catalog_entry(device_id, category, product_name)
+
+    if enabled_ids is not None:
+        return device_id in enabled_ids
+
+    show = entry.get("show_by_default")
+    if show is None:
+        show = kind in SHOW_KINDS_DEFAULT
+    if not include_other and not show and kind == "other":
+        return False
+    if not include_other and not show:
+        return False
+    return True
+
+
+def _inventory_device_row(
+    raw: dict[str, Any],
+    *,
+    enabled_set: set[str] | None,
+    home_selected: bool,
+) -> dict[str, Any]:
+    did = str(raw.get("id"))
+    name = (raw.get("name") or "").strip() or did
+    category = raw.get("category") or ""
+    product_name = (raw.get("product_name") or "").strip() or None
+    kind = classify_device(name, category, did, product_name)
+    entry = catalog_entry(did, category, product_name)
+    auto_show = entry.get("show_by_default")
+    if auto_show is None:
+        auto_show = kind in SHOW_KINDS_DEFAULT
+    if enabled_set is not None:
+        enabled_flag = did in enabled_set
+    else:
+        enabled_flag = bool(auto_show) and home_selected
+    return {
+        "id": did,
+        "name": entry.get("name") or name,
+        "kind": kind,
+        "category": category,
+        "product": product_name or entry.get("product"),
+        "online": raw.get("online"),
+        "enabled": enabled_flag,
+        "auto_show": bool(auto_show),
+        "home_id": raw.get("home_id"),
+    }
+
+
+def inventory_all_homes() -> dict[str, Any]:
+    """Inventário completo: todas as residências + devices (leve, sem status)."""
+    cloud = get_cloud()
+    prefs = home_prefs.load_prefs()
+    selected_ids = set(resolve_selected_home_ids(prefs))
+    enabled = prefs.get("enabled_device_ids")
+    enabled_set = set(enabled) if isinstance(enabled, list) else None
+
+    homes_out: list[dict[str, Any]] = []
+    for home in list_tuya_homes():
+        hid = int(home["id"])
+        home_selected = hid in selected_ids
+        devices = [
+            _inventory_device_row(raw, enabled_set=enabled_set, home_selected=home_selected)
+            for raw in _devices_for_home(cloud, hid)
+        ]
+        devices.sort(key=lambda x: (0 if x["enabled"] else 1, x["name"].lower()))
+        homes_out.append(
+            {
+                "id": hid,
+                "name": home.get("name") or str(hid),
+                "device_count": len(devices),
+                "selected": home_selected,
+                "devices": devices,
+            }
+        )
+    return {
+        "selected_home_ids": sorted(selected_ids),
+        "homes": homes_out,
+    }
+
+
+def inventory_home_devices(home_id: int | None = None) -> dict[str, Any]:
+    """Compat: inventário de uma residência (ou todas se home_id=None)."""
+    if home_id is None:
+        return inventory_all_homes()
+    all_data = inventory_all_homes()
+    for home in all_data.get("homes") or []:
+        if int(home["id"]) == int(home_id):
+            return {"home_id": int(home_id), "devices": home.get("devices") or [], "homes": all_data["homes"]}
+    return {"home_id": int(home_id), "devices": [], "homes": all_data.get("homes") or []}
+
+
 def get_home_device(device_id: str) -> dict[str, Any] | None:
     """Atualiza estado de um device; reaproveita metadados do catálogo quando possível."""
     cloud = get_cloud()
@@ -584,30 +806,65 @@ def get_home_device(device_id: str) -> dict[str, Any] | None:
     return _build_home_device(cloud, meta)
 
 
-def list_home_devices(include_other: bool = False) -> list[dict[str, Any]]:
+def list_home_devices(
+    include_other: bool = False,
+    *,
+    home_id: int | None = None,
+    force_refresh: bool = False,
+) -> dict[str, Any]:
+    """Grade da HOME: residências selecionadas + devices habilitados."""
+    prefs = home_prefs.load_prefs()
+    ttl = int(prefs.get("cache_ttl_seconds") or 0)
+    skip_offline = bool(prefs.get("skip_offline_status", True))
+    if home_id is not None:
+        home_ids = [int(home_id)]
+    else:
+        home_ids = resolve_selected_home_ids(prefs)
+    enabled = prefs.get("enabled_device_ids")
+    enabled_set = set(str(x) for x in enabled) if isinstance(enabled, list) else None
+
+    cache_key = (
+        f"{sorted(home_ids)}|{include_other}|"
+        f"{sorted(enabled_set) if enabled_set is not None else 'auto'}|{skip_offline}"
+    )
+    now = time.time()
+    if not force_refresh and ttl > 0:
+        with _LIST_LOCK:
+            if _LIST_CACHE["key"] == cache_key and (now - float(_LIST_CACHE["at"] or 0)) < ttl:
+                cached = _LIST_CACHE["payload"]
+                if isinstance(cached, dict):
+                    out = dict(cached)
+                    out["cached"] = True
+                    return out
+
+    t0 = time.perf_counter()
     cloud = get_cloud()
 
-    visible: list[dict[str, Any]] = []
-    for raw_device in _cloud_devices(cloud):
-        name = (raw_device.get("name") or "").strip()
-        category = raw_device.get("category") or ""
-        device_id = raw_device.get("id")
-        product_name = (raw_device.get("product_name") or "").strip() or None
-        kind = classify_device(name, category, device_id, product_name)
-        entry = catalog_entry(device_id, category, product_name)
-        show = entry.get("show_by_default")
-        if show is None:
-            show = kind in SHOW_KINDS_DEFAULT
-        if not include_other and not show and kind == "other":
-            continue
-        if not include_other and not show:
-            continue
-        visible.append(raw_device)
+    pool_raw: list[dict[str, Any]] = []
+    home_names: list[str] = []
+    if home_ids:
+        for hid in home_ids:
+            pool_raw.extend(_devices_for_home(cloud, hid))
+            try:
+                detail = cloud.cloudrequest(f"/v2.0/cloud/space/{hid}")
+                if isinstance(detail, dict) and isinstance(detail.get("result"), dict):
+                    nm = detail["result"].get("name")
+                    if nm:
+                        home_names.append(str(nm))
+            except Exception:
+                home_names.append(str(hid))
+    else:
+        pool_raw = _cloud_devices(cloud, enrich_online=True)
 
-    # Cada device exige 1+ chamada de status; em série a lista levava ~40s no celular.
+    visible = [
+        raw for raw in pool_raw
+        if _should_show_device(raw, include_other=include_other, enabled_ids=enabled_set)
+    ]
+
     def build(raw: dict[str, Any]) -> dict[str, Any] | None:
         try:
-            return _build_home_device(cloud, raw)
+            offline = raw.get("online") is False
+            return _build_home_device(cloud, raw, skip_status=(skip_offline and offline))
         except Exception:
             return None
 
@@ -628,7 +885,32 @@ def list_home_devices(include_other: bool = False) -> list[dict[str, Any]]:
         "other": 9,
     }
     devices.sort(key=lambda x: (order.get(x["kind"], 9), x["name"].lower()))
-    return devices
+    elapsed_ms = int((time.perf_counter() - t0) * 1000)
+
+    if not home_names:
+        home_name = None
+    elif len(home_names) == 1:
+        home_name = home_names[0]
+    else:
+        home_name = " · ".join(home_names)
+
+    payload = {
+        "devices": devices,
+        "home_id": home_ids[0] if len(home_ids) == 1 else None,
+        "home_ids": home_ids,
+        "home_name": home_name,
+        "count": len(devices),
+        "scanned": len(pool_raw),
+        "elapsed_ms": elapsed_ms,
+        "cached": False,
+        "skip_offline_status": skip_offline,
+    }
+    if ttl > 0:
+        with _LIST_LOCK:
+            _LIST_CACHE["key"] = cache_key
+            _LIST_CACHE["at"] = now
+            _LIST_CACHE["payload"] = payload
+    return payload
 
 
 def send_commands(device_id: str, commands: list[dict[str, Any]]) -> dict[str, Any]:

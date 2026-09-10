@@ -120,9 +120,32 @@ set PGPASSWORD=energy_meter_dev_only
 "C:\Program Files\PostgreSQL\17\bin\pg_dump.exe" -U energy_meter -h localhost -d energy_meter -F c -f K:\storage\backups\energy_meter\energy_meter_%DATE:~6,4%%DATE:~3,2%%DATE:~0,2%.dump
 ```
 
+## Acesso remoto (Tailscale)
+
+O dono da política do cluster é o repo **`pieng_postgres`** (`REMOTE_ACCESS.md`).
+
+| Item | Valor (2026-09-10) |
+|------|---------------------|
+| Servidor | `cca-tecnica` — Tailscale **100.104.172.12** (cluster ativo) |
+| Segundo ADMINISTRADOR | `administrator` — **100.126.2.58** (acesso depois; teste remoto adiado) |
+| `pg_hba` | localhost + `100.64.0.0/10` |
+| Firewall | `PIENG-PostgreSQL-Tailscale-5432` |
+| DBs | `energy_meter`, `pieng_saas` |
+
+Os dois hosts Tailscale são classe **ADMINISTRADOR**. Validação `psql` a partir do
+segundo fica para quando houver acesso físico/remoto a ele.
+
+Neste PC o espelho do Energy Meter usa `localhost`. Em outra máquina:
+
+```env
+POSTGRES_MIRROR_URL=postgresql://energy_meter:SENHA@100.104.172.12:5432/energy_meter
+```
+
+Não abrir `5432` no roteador. Não trocar o hot path SQLite sem validação.
+
 ## Relacionado
 
 - `CHANGELOG.md` — relato da sessão
 - `.claude/session_context.json` — estado estruturado
 - `SETUP_FIDELCO.md` — alvo futuro (mini PC / servidor)
-- Projeto `pieng_postgres` — portal SaaS (schema Prisma ainda só User; não misturar DB)
+- Projeto `pieng_postgres` — dono do cluster central (`REMOTE_ACCESS.md`, `scripts/postgres/`)
