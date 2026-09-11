@@ -874,11 +874,11 @@ def list_home_devices(
             devices = [d for d in pool.map(build, visible) if d]
 
     order = {
-        "light": 0,
-        "ac": 1,
-        "switch": 2,
-        "meter": 3,
-        "sensor": 4,
+        "sensor": 0,
+        "meter": 1,
+        "light": 2,
+        "ac": 3,
+        "switch": 4,
         "gateway": 5,
         "ir_hub": 6,
         "ir": 7,
@@ -1062,3 +1062,51 @@ def set_ac_temp(device_id: str, temp: int) -> dict[str, Any]:
         if isinstance(alt, dict) and alt.get("success"):
             return alt
     return resp if isinstance(resp, dict) else {"success": False, "msg": "Nenhum código de temperatura aceito"}
+
+
+def set_ac_setting(device_id: str, setting: str, value: str | bool | int) -> dict[str, Any]:
+    """Ajusta modo (M0-M4), vento (F0-F3) ou swing do ar via hub IR / DP virtual."""
+    setting = (setting or "").strip().lower()
+    entry = catalog_entry(device_id)
+    keys = _remote_keys(entry)
+
+    if setting == "mode":
+        idx = str(value)
+        if idx not in AC_MODE_LABELS:
+            return {"success": False, "msg": f"Modo inválido: {value}"}
+        prefix = str(keys.get("mode") or "M")
+        ir_key = f"{prefix}{idx}"
+        resp = send_ir_key(device_id, ir_key)
+        if isinstance(resp, dict) and resp.get("success"):
+            return {**resp, "setting": setting, "value": idx, "label": AC_MODE_LABELS[idx]}
+        alt = send_commands(device_id, [{"code": "mode", "value": idx}])
+        if isinstance(alt, dict) and alt.get("success"):
+            return {**alt, "setting": setting, "value": idx, "label": AC_MODE_LABELS[idx]}
+        return resp if isinstance(resp, dict) else {"success": False, "msg": "Modo não aceito"}
+
+    if setting == "fan":
+        idx = str(value)
+        if idx not in AC_FAN_LABELS:
+            return {"success": False, "msg": f"Vento inválido: {value}"}
+        prefix = str(keys.get("fan") or "F")
+        ir_key = f"{prefix}{idx}"
+        resp = send_ir_key(device_id, ir_key)
+        if isinstance(resp, dict) and resp.get("success"):
+            return {**resp, "setting": setting, "value": idx, "label": AC_FAN_LABELS[idx]}
+        alt = send_commands(device_id, [{"code": "fan", "value": idx}])
+        if isinstance(alt, dict) and alt.get("success"):
+            return {**alt, "setting": setting, "value": idx, "label": AC_FAN_LABELS[idx]}
+        return resp if isinstance(resp, dict) else {"success": False, "msg": "Vento não aceito"}
+
+    if setting == "swing":
+        on = value if isinstance(value, bool) else str(value).lower() in {"1", "true", "on", "ligado"}
+        # Alguns remotes têm tecla Swing; a maioria usa DP booleano no virtual
+        resp = send_ir_key(device_id, "Swing")
+        if isinstance(resp, dict) and resp.get("success"):
+            return {**resp, "setting": setting, "value": on}
+        alt = send_commands(device_id, [{"code": "swing", "value": on}])
+        if isinstance(alt, dict) and alt.get("success"):
+            return {**alt, "setting": setting, "value": on}
+        return resp if isinstance(resp, dict) else {"success": False, "msg": "Swing não aceito"}
+
+    return {"success": False, "msg": f"Ajuste desconhecido: {setting}"}

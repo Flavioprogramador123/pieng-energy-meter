@@ -1,7 +1,28 @@
 {
   "project": "pieng-energy-meter",
-  "last_session_date": "2026-09-09",
-  "summary": "HOME web repaginado e validado ao vivo (interruptores, ar IR, offline). Flush SQLite→Postgres 30 min permanece. Encerrado com push em feature/home-module e desligamento do PC.",
+  "last_session_date": "2026-09-10",
+  "summary": "HOME funcional; cota Tuya Trial inviabiliza poll 30s. Nova estrategia: medicao Elfin+PZEM (Modbus), spool local, banco nuvem/central, Tuya so pontual. Mobile/Flutter e gateway LTE como opcoes de envio.",
+  "strategy_shift_2026_09_10": {
+    "doc": "docs/ESTRATEGIA_SPOOL_LOCAL_NUVEM.md",
+    "why": "Trial Tuya ~26k API calls/mes e ~10 controlaveis; 2 medidores/30s ~173k calls/mes; 60001001 = pool controlavel",
+    "hardware_priority": ["Elfin EW11 Modbus TCP", "PZEM-004T Modbus RTU"],
+    "architecture": {
+      "edge": "spool local (SQLite/fila) coleta mesmo offline",
+      "cloud": "Postgres central (pieng_postgres) recebe flush",
+      "apps": "Dashboard + HOME + Flutter leem a nuvem/API",
+      "tuya_role": "comando ocasional / ponte temporaria; nao coleta 30s"
+    },
+    "mobile_hypothesis": "Flutter para painel e opcionalmente ponte/diagnostico em campo; coletor 24/7 deve ser edge fixo (mini PC ou USR-G771 etc.)",
+    "pending_actions": [
+      "Reduzir ou pausar poller Tuya de medidores",
+      "Validar Elfin IP + PZEM COMx e cadastrar como fonte oficial",
+      "Contrato do spool (lote, retry, idempotencia)",
+      "Definir edge (mini PC casa vs LTE gateway)",
+      "Postgres central via Tailscale",
+      "HOME sem auto-refresh agressivo",
+      "Prototipo Flutter na API PIENG"
+    ]
+  },
   "current_architecture": {
     "database": {
       "production_hot": "SQLite (data/app.db) - fonte de verdade da coleta/Dashboard. NAO cortar sem avisar.",
@@ -11,82 +32,60 @@
         "ui": "/api/db",
         "default_minutes": 30,
         "sqlite_cache_max_mb": 200,
-        "rationale": "Teste no escritorio, maquina nao dedicada. 200 MB ≈ 3 dias com ~3 aparelhos (~15 MB/dia/device). Se K: cair, dados ficam no SQLite.",
+        "rationale": "Prototipo do padrao spool→espelho. Generalizar para edge→nuvem.",
         "note": "Enquanto o flush nao roda, a UI e a coleta usam SQLite. O Postgres e copia atrasada."
       },
       "test_postgres_docker": "docker-compose.yml PRESERVADO. Volume K:/storage/postgres/energy_meter_docker porta 5433. Docker ainda nao instalado.",
       "database_url_explanation": "DATABASE_URL = banco que a APP inteira usa. Trocar para Postgres faria cada poll depender do USB. Por isso ainda nao trocamos — usamos flush/espelho."
     },
     "remote_access_plan": {
-      "status": "Computador atual autenticado no Tailscale em 2026-09-09 com IP 100.126.2.58; concluir computador do storage em 2026-09-10",
-      "recommended": "Tailscale nos computadores remoto e do escritorio; acessar primeiro o dashboard :8001 pelo IP privado.",
-      "postgres": "Se necessario, acessar :5432 pela VPN, limitando postgresql.conf, pg_hba.conf e Firewall do Windows ao IP Tailscale autorizado.",
-      "security": "Nao abrir 5432 diretamente na Internet e nunca compartilhar a pasta pgdata.",
-      "owner": "O projeto pieng_postgres controla o servidor central e os bancos dos programas PIENG. Documento canonico: pieng_postgres/REMOTE_ACCESS.md.",
-      "future_alternative": "WireGuard entre MikroTiks para interligar redes completas ou varias instalacoes."
+      "status": "Computador autenticado no Tailscale (ex.: 100.126.2.58); storage/K: no PC do HD",
+      "recommended": "Tailscale; dashboard/API pelo IP privado; Postgres :5432 so pela VPN",
+      "owner": "pieng_postgres / REMOTE_ACCESS.md",
+      "future_alternative": "WireGuard entre MikroTiks"
     },
     "storage_k": {
       "volume_label": "STORAGE",
       "root": "K:\\storage"
     },
     "devices_registered": {
-      "id_5": "medidorCASA (tuya tdq) - unico device ativo na ultima migracao"
+      "id_5": "medidorCASA (tuya tdq) - migrar prioridade para Elfin/PZEM"
     }
   },
   "home_ui_direction": {
-    "status": "web /home JA repaginado e funcional (2026-09-09 noite); Flutter/React+Babylon continuam como proximos testes",
-    "feito_no_web": "tema escuro vibrante, icones SVG por tipo, toggle de 1 toque, brilho neon quando ligado, termostato do ar, resumo online/offline, offline desabilitado",
-    "alvo_futuro": "React + TypeScript + Babylon.js + Framer Motion + Tailwind, PWA em modo kiosk no tablet.",
-    "proximo_prototipo": "Flutter (simples) antes de fixar stack",
-    "ajuste_importante": "Nao usamos Home Assistant: fonte de verdade e /home/api/* do FastAPI.",
-    "doc": "docs/HOME_UI_STACK.md"
+    "status": "web /home funcional; Flutter/React+Babylon como proximos testes",
+    "doc": "docs/HOME_UI_STACK.md",
+    "ajuste_importante": "Nao usamos Home Assistant; fonte = /home/api/*"
   },
   "home_live_validation_2026_09_09": {
     "ok": [
-      "eba5da7bcaca181936499z switch_3 ligar",
-      "ebdd111cd1fc767c0fbyta switch_2 ligar",
-      "Ar Consul T24 / T23 / PowerOff via hub IR"
+      "interruptores sala/frente",
+      "Ar Consul T24/T23/PowerOff via hub IR"
     ],
     "tuya_quota_error": {
       "device_id": "eb5a1f91b343c565846oqi",
       "code": 60001001,
       "msg": "Your controllable device pool quota is insufficient.",
-      "fix": "Console Tuya IoT (pool controlavel / cota do plano), nao bug do app"
+      "fix": "Console Tuya IoT (pool controlavel / cota do plano)"
     }
   },
-  "home_online_status": {
-    "fonte": "GET /v2.0/cloud/thing/batch (is_online), lotes de 20; getdevices nao traz online",
-    "ir_virtual": "controles IR herdam disponibilidade do hub fisico 04708305d8bfc017c02e",
-    "ultimo_teste": "25 devices - 15 online / 10 offline",
-    "regra": "device offline aparece marcado e com comandos desabilitados"
-  },
-  "home_dp_notes": {
-    "ac_virtual": "estado em switch_power + temperature (NAO em temp/T); mode/fan sao enum string; mandar temperatura LIGA o ar",
-    "ir_power_key": "vem de remote.keys no catalogo: ar = PowerOn/PowerOff, TV Samsung = Power (toggle). Campo power_mode no payload.",
-    "performance": "list_home_devices usa ThreadPoolExecutor(8): ~11s para 25 aparelhos (era ~43s em serie)"
-  },
   "pending_next_steps": [
-    "Resolver 60001001 no console Tuya para eb5a1f91b343c565846oqi (pool controlavel)",
-    "HOME visual: prototipar em Flutter e comparar com React+Babylon antes de fixar stack",
-    "Na outra maquina: pull feature/home-module + .env Tuya + uvicorn :8001",
-    "Instalar Tailscale no PC do storage e validar acesso remoto",
-    "Cuidado com uvicorn duplicado — preferir um unico processo"
+    "Seguir docs/ESTRATEGIA_SPOOL_LOCAL_NUVEM.md",
+    "Validar Elfin + PZEM e reduzir poller Tuya",
+    "HOME visual: prototipo Flutter",
+    "Tailscale no PC do storage"
   ],
-  "processes_to_be_aware_of": {
-    "live_server": "encerrado em 2026-09-09 noite a pedido do usuario (PC desligado)",
-    "postgres_native": "postgresql-x64-17 (se K: existir nesta maquina)",
-    "flush_job": "id=postgres_flush no APScheduler - 30 min - respeita runtime_settings.json"
-  },
   "git": {
     "branch": "feature/home-module",
     "pr": "https://github.com/Flavioprogramador123/pieng-energy-meter/pull/1"
   },
   "docs": [
-    "CHANGELOG.md",
+    "docs/ESTRATEGIA_SPOOL_LOCAL_NUVEM.md",
     "docs/HOME_UI_STACK.md",
+    "CHANGELOG.md",
+    "docs/ROADMAP_CASA_INVERSOR_NUVEM.md",
+    "pieng_postgres/REMOTE_ACCESS.md",
     "home/README.md",
-    "docs/SETUP_POSTGRES_NATIVO_K.md",
-    ".claude/session_context.json",
-    "env.example"
+    ".claude/session_context.json"
   ]
 }

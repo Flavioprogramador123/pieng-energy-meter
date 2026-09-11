@@ -41,6 +41,27 @@ async function api(path, options) {
   return data;
 }
 
+const AC_MODE_ORDER = ["0", "1", "2", "3", "4"];
+const AC_FAN_ORDER = ["0", "1", "2", "3"];
+const AC_MODE_LABELS = {
+  0: "Refrigerar",
+  1: "Aquecer",
+  2: "Automático",
+  3: "Ventilar",
+  4: "Desumidificar",
+};
+const AC_FAN_LABELS = {
+  0: "Automático",
+  1: "Baixa",
+  2: "Média",
+  3: "Alta",
+};
+
+function nextInCycle(order, current) {
+  const idx = Math.max(0, order.indexOf(String(current)));
+  return order[(idx + 1) % order.length];
+}
+
 /* ---------------- ícones ---------------- */
 
 const ICONS = {
@@ -186,10 +207,24 @@ function renderGatewayBody(d) {
 }
 
 function renderAcBody(d) {
-  const chips = [];
-  if (d.readings?.mode) chips.push(`<span class="chip">Modo <b>${escapeHtml(String(d.readings.mode.value))}</b></span>`);
-  if (d.readings?.fan) chips.push(`<span class="chip">Vento <b>${escapeHtml(String(d.readings.fan.value))}</b></span>`);
-  if (d.readings?.swing) chips.push(`<span class="chip">Swing <b>${escapeHtml(String(d.readings.swing.value))}</b></span>`);
+  const modeRaw = d.readings?.mode?.raw != null ? String(d.readings.mode.raw) : "0";
+  const fanRaw = d.readings?.fan?.raw != null ? String(d.readings.fan.raw) : "0";
+  const swingOn = d.readings?.swing?.raw === true || d.status?.swing === true;
+  const modeLabel = d.readings?.mode?.value || AC_MODE_LABELS[modeRaw] || modeRaw;
+  const fanLabel = d.readings?.fan?.value || AC_FAN_LABELS[fanRaw] || fanRaw;
+
+  const chips = [
+    `<button class="chip chip-btn" type="button" data-act="ac-mode" data-id="${d.id}" data-raw="${escapeHtml(modeRaw)}" title="Toque para trocar o modo" ${blocked(d, "ac-mode")}>
+       Modo <b>${escapeHtml(String(modeLabel))}</b>
+     </button>`,
+    `<button class="chip chip-btn" type="button" data-act="ac-fan" data-id="${d.id}" data-raw="${escapeHtml(fanRaw)}" title="Toque para trocar o vento" ${blocked(d, "ac-fan")}>
+       Vento <b>${escapeHtml(String(fanLabel))}</b>
+     </button>`,
+    `<button class="chip chip-btn" type="button" data-act="ac-swing" data-id="${d.id}" data-raw="${swingOn ? "1" : "0"}" title="Toque para ligar/desligar o swing" ${blocked(d, "ac-swing")}>
+       Swing <b>${swingOn ? "Ligado" : "Desligado"}</b>
+     </button>`,
+  ];
+
   return `
     <div class="thermo">
       <button class="thermo-btn" type="button" data-act="temp-down" data-id="${d.id}" aria-label="Diminuir temperatura" ${blocked(d, "temp")}>−</button>
@@ -199,7 +234,8 @@ function renderAcBody(d) {
       </div>
       <button class="thermo-btn" type="button" data-act="temp-up" data-id="${d.id}" aria-label="Aumentar temperatura" ${blocked(d, "temp")}>+</button>
     </div>
-    ${chips.length ? `<div class="chips">${chips.join("")}</div>` : ""}
+    <div class="chips">${chips.join("")}</div>
+    <p class="hint">Toque em Modo / Vento / Swing para alternar.</p>
   `;
 }
 
@@ -417,11 +453,24 @@ async function confirmDeviceState(deviceId, code, expectedOn) {
       if (actual === expectedOn) {
         if (local) applyFresh(local, fresh);
         render();
-        return;
+        return true;
       }
     } catch (_e) { /* tenta de novo */ }
   }
-  await loadDevices();
+  await loadDevices({ force: true });
+  setStatus("A Tuya não confirmou o comando — estado relido do aparelho.", true);
+  return false;
+}
+
+function formatCommandError(err) {
+  const text = String(err?.message || err || "");
+  if (/60001001|controllable device pool quota/i.test(text)) {
+    return "Tuya: cota do pool controlável insuficiente (60001001). Vincule o aparelho no console IoT ou liberte vaga no plano.";
+  }
+  if (/Dispositivo offline/i.test(text)) {
+    return "Aparelho offline — comando recusado.";
+  }
+  return text;
 }
 
 async function setPower(deviceId, code, on) {
@@ -430,6 +479,11 @@ async function setPower(deviceId, code, on) {
     setStatus("Aparelho offline — não dá para comandar agora.", true);
     return;
   }
+  const prevChannel = device
+    ? [...channelsFor(device), ...(device.controls || [])].find((c) => c.code === code)
+    : null;
+  const prevOn = prevChannel && typeof prevChannel.on === "boolean" ? prevChannel.on : null;
+
   await withBusy(busyKey(deviceId, code), async () => {
     const isAcPower = device?.kind === "ac" && (code === "power" || code == null);
     const path = isAcPower
@@ -437,17 +491,29 @@ async function setPower(deviceId, code, on) {
       : `/home/api/devices/${deviceId}/switch`;
     const body = isAcPower ? { on } : { on, code: code && code !== "power" ? code : device?.switch_code || null };
 
-    const res = await api(path, { method: "POST", body: JSON.stringify(body) });
-    if (!res.ok) throw new Error(res.response?.msg || JSON.stringify(res.response || res));
+    let res;
+    try {
+      res = await api(path, { method: "POST", body: JSON.stringify(body) });
+    } catch (e) {
+      throw new Error(formatCommandError(e));
+    }
+    if (!res.ok) {
+      throw new Error(formatCommandError({
+        message: res.response?.msg || JSON.stringify(res.response || res),
+      }));
+    }
 
     if (device) {
       if (isAcPower) device.on = on;
-      const ch = [...channelsFor(device), ...(device.controls || [])].find((c) => c.code === code);
-      if (ch) ch.on = on;
+      if (prevChannel) prevChannel.on = on;
     }
     setStatus(`${device?.name || "Aparelho"}: ${on ? "ligar" : "desligar"} enviado`);
     render();
-    confirmDeviceState(deviceId, code, on);
+    const confirmed = await confirmDeviceState(deviceId, code, on);
+    if (!confirmed && prevChannel && typeof prevOn === "boolean") {
+      prevChannel.on = prevOn;
+      render();
+    }
   });
 }
 
@@ -486,6 +552,62 @@ async function bumpTemp(deviceId, delta) {
     if (!res.ok) throw new Error(res.response?.msg || JSON.stringify(res.response || res));
     device.temp = next;
     setStatus(`Temperatura ${next}°C enviada`);
+    render();
+    setTimeout(async () => {
+      try {
+        const fresh = (await api(`/home/api/devices/${deviceId}`)).device;
+        if (fresh) { applyFresh(device, fresh); render(); }
+      } catch (_e) { /* mantém o valor enviado */ }
+    }, 2000);
+  });
+}
+
+async function cycleAcSetting(deviceId, setting, currentRaw) {
+  const device = state.devices.find((d) => d.id === deviceId);
+  if (!device) return;
+  if (isOffline(device)) {
+    setStatus("Aparelho offline — não dá para comandar agora.", true);
+    return;
+  }
+
+  let value;
+  let label;
+  if (setting === "mode") {
+    value = nextInCycle(AC_MODE_ORDER, currentRaw ?? device.readings?.mode?.raw ?? "0");
+    label = AC_MODE_LABELS[value];
+  } else if (setting === "fan") {
+    value = nextInCycle(AC_FAN_ORDER, currentRaw ?? device.readings?.fan?.raw ?? "0");
+    label = AC_FAN_LABELS[value];
+  } else if (setting === "swing") {
+    const nowOn = String(currentRaw ?? (device.readings?.swing?.raw ? "1" : "0")) === "1";
+    value = !nowOn;
+    label = value ? "Ligado" : "Desligado";
+  } else {
+    return;
+  }
+
+  await withBusy(busyKey(deviceId, `ac-${setting}`), async () => {
+    const res = await api(`/home/api/devices/${deviceId}/ac/setting`, {
+      method: "POST",
+      body: JSON.stringify({ setting, value }),
+    });
+    if (!res.ok) throw new Error(res.response?.msg || JSON.stringify(res.response || res));
+
+    device.readings = device.readings || {};
+    if (setting === "mode") {
+      device.readings.mode = { code: "mode", value: label, unit: "", raw: value };
+    } else if (setting === "fan") {
+      device.readings.fan = { code: "fan", value: label, unit: "", raw: value };
+    } else if (setting === "swing") {
+      device.readings.swing = {
+        code: "swing",
+        value: label,
+        unit: "",
+        raw: value,
+      };
+      if (device.status) device.status.swing = value;
+    }
+    setStatus(`${device.name}: ${setting === "mode" ? "modo" : setting === "fan" ? "vento" : "swing"} → ${label}`);
     render();
     setTimeout(async () => {
       try {
@@ -556,9 +678,12 @@ function wire() {
         case "ir-power": await sendIrPower(id); break;
         case "temp-up": await bumpTemp(id, 1); break;
         case "temp-down": await bumpTemp(id, -1); break;
+        case "ac-mode": await cycleAcSetting(id, "mode", btn.dataset.raw); break;
+        case "ac-fan": await cycleAcSetting(id, "fan", btn.dataset.raw); break;
+        case "ac-swing": await cycleAcSetting(id, "swing", btn.dataset.raw); break;
       }
     } catch (e) {
-      setStatus(String(e.message || e), true);
+      setStatus(formatCommandError(e), true);
       render();
     }
   });

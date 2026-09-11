@@ -17,6 +17,17 @@ def _log(msg: str) -> None:
     print(f"[HOME] {msg}", flush=True)
 
 
+def _tuya_ok(resp: object) -> bool:
+    """Só sucesso real: success=True ou result=True. Presença da chave result NÃO basta."""
+    if not isinstance(resp, dict):
+        return False
+    if resp.get("success") is True:
+        return True
+    if resp.get("result") is True:
+        return True
+    return False
+
+
 class SwitchBody(BaseModel):
     on: bool
     code: str | None = None
@@ -28,6 +39,11 @@ class AcPowerBody(BaseModel):
 
 class AcTempBody(BaseModel):
     temp: int = Field(..., ge=16, le=30)
+
+
+class AcSettingBody(BaseModel):
+    setting: str = Field(..., pattern="^(mode|fan|swing)$")
+    value: str | bool | int
 
 
 class PrefsBody(BaseModel):
@@ -144,7 +160,7 @@ def api_switch(device_id: str, body: SwitchBody, kind: str | None = None):
             resp = tuya_client.set_ac_power(device_id, body.on)
         else:
             resp = tuya_client.set_switch(device_id, body.on, code=body.code)
-        ok = bool(isinstance(resp, dict) and (resp.get("success") is True or "result" in resp))
+        ok = _tuya_ok(resp)
         _log(f"SWITCH device={device_id} ok={ok} response={resp}")
         tuya_client.invalidate_devices_cache()
         return {"ok": ok, "response": resp}
@@ -158,7 +174,7 @@ def api_ac_power(device_id: str, body: AcPowerBody):
     _log(f"AC_POWER device={device_id} on={body.on}")
     try:
         resp = tuya_client.set_ac_power(device_id, body.on)
-        ok = bool(isinstance(resp, dict) and (resp.get("success") is True or "result" in resp))
+        ok = _tuya_ok(resp)
         _log(f"AC_POWER device={device_id} ok={ok} response={resp}")
         tuya_client.invalidate_devices_cache()
         return {"ok": ok, "response": resp}
@@ -172,9 +188,23 @@ def api_ac_temp(device_id: str, body: AcTempBody):
     _log(f"AC_TEMP device={device_id} temp={body.temp}")
     try:
         resp = tuya_client.set_ac_temp(device_id, body.temp)
-        ok = bool(isinstance(resp, dict) and (resp.get("success") is True or "result" in resp))
+        ok = _tuya_ok(resp)
         _log(f"AC_TEMP device={device_id} ok={ok} response={resp}")
         return {"ok": ok, "response": resp, "temp": body.temp}
     except Exception as e:
         _log(f"AC_TEMP device={device_id} FALHOU: {e}")
+        raise HTTPException(status_code=502, detail=str(e)) from e
+
+
+@router.post("/api/devices/{device_id}/ac/setting")
+def api_ac_setting(device_id: str, body: AcSettingBody):
+    _log(f"AC_SETTING device={device_id} setting={body.setting} value={body.value}")
+    try:
+        resp = tuya_client.set_ac_setting(device_id, body.setting, body.value)
+        ok = _tuya_ok(resp)
+        _log(f"AC_SETTING device={device_id} ok={ok} response={resp}")
+        tuya_client.invalidate_devices_cache()
+        return {"ok": ok, "response": resp, "setting": body.setting, "value": body.value}
+    except Exception as e:
+        _log(f"AC_SETTING device={device_id} FALHOU: {e}")
         raise HTTPException(status_code=502, detail=str(e)) from e

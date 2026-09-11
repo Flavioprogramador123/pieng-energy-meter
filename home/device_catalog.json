@@ -228,6 +228,7 @@
       "product": "Interruptor touch novadigital",
       "kind": "switch",
       "card": "multi_switch",
+      "notes": "Comando Cloud falha com 60001001 (cota pool controlável) se o device não estiver vinculado no projeto Tuya IoT.",
       "channels": [
         { "code": "switch_1", "label": "Tecla 1" },
         { "code": "switch_2", "label": "Tecla 2" },
@@ -237,6 +238,7 @@
     "ebdd111cd1fc767c0fbyta": {
       "name": "interruptor da sala",
       "category": "kg",
+      "product": "WB03-NCD",
       "kind": "switch",
       "card": "multi_switch",
       "channels": [
@@ -295,7 +297,10 @@
           "power_off": "PowerOff",
           "temp": "T{temp}",
           "mode": "M",
-          "fan": "F"
+          "fan": "F",
+          "mode_range": "0-4",
+          "fan_range": "0-3",
+          "swing": "Swing"
         }
       },
       "validated": {
@@ -459,7 +464,7 @@
       }
     },
     "eb5946695d88af3469ribh": {
-      "name": "Aubess Smart Switch 1-gang",
+      "name": "luz do bosque",
       "product": "Aubess Smart Switch 1-gang",
       "category": "tdq",
       "kind": "switch",

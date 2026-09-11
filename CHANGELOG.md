@@ -3,6 +3,33 @@
 Todas as mudanças relevantes do projeto Energy Meter são registradas aqui.
 Formato livre, em português, por sessão de trabalho.
 
+## 2026-09-10 (noite) — Mudança de estratégia: Modbus local + spool + nuvem
+
+### Decisão (ações futuras)
+- Plano Trial Tuya (~**26 mil** API calls/mês, ~**10** devices controláveis) **não
+  sustenta** poller a cada 30 s (2 medidores ≈ 173 mil calls/mês). Erro
+  `60001001` = cota do pool controlável, não bug do app.
+- **Medição contínua** passa a priorizar hardware que o usuário já tem:
+  **Elfin EW11** (Modbus TCP) + **PZEM-004T** (Modbus RTU) — zero cota cloud.
+- **Tuya Cloud** fica para comando ocasional / ponte temporária (intervalo longo
+  ou desligado na coleta).
+- Arquitetura alvo: **spool local** (buffer SQLite/fila na planta; coleta mesmo
+  sem Internet) → **flush** para **banco na nuvem/central** (`pieng_postgres`) →
+  Dashboard / HOME / mobile leem a nuvem.
+- Mobile (Flutter) e/ou gateway (ex. USR-G771 LTE) podem ajudar a enviar/
+  diagnosticar; o coletor 24/7 deve ser edge fixo (mini PC/gateway), não só o
+  celular.
+- HOME/UI: mesma API PIENG; mudam os conectores (`modbus` / MQTT / tuya local),
+  não a ideia do painel.
+
+Documento canônico: `docs/ESTRATEGIA_SPOOL_LOCAL_NUVEM.md`.
+
+### Também nesta sessão (código HOME)
+- Chips do Ar Consul (modo/vento/swing) viraram botões + `POST .../ac/setting`.
+- Detecção de sucesso Tuya corrigida (`success`/`result` **True**, não só
+  presença da chave) — evita toggle “falso sucesso” e mensagem clara no
+  `60001001`.
+
 ## 2026-09-09 (noite final) — Validação ao vivo no painel + encerramento
 
 ### Testado pelo usuário (logs :8001)

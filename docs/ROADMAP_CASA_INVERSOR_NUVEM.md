@@ -56,7 +56,11 @@ O coletor continua no PC do escritório. Para entrar de casa sem VPN complexa, o
 | **B) Firebase** (já no código, desligado) | Baixo p/ ligar | Backup/leituras na nuvem; não substitui o painel completo |
 | **C) Mini PC em casa + sync** | Alto | Futuro Fidelco; `pg_dump` do K: ou dual-write |
 
-Recomendação imediata: **A (Tailscale ou Tunnel)** + storage K: no escritório. O medidor do inversor só precisa estar no projeto Tuya Cloud — o poller do escritório coleta pela API sem estar fisicamente em casa.
+Recomendação imediata (atualizada **2026-09-10**): medição contínua preferir
+**Elfin/PZEM (Modbus local) + spool → Postgres central**; Tuya Cloud só pontual.
+Ver `docs/ESTRATEGIA_SPOOL_LOCAL_NUVEM.md`. Tailscale continua para acesso remoto
+ao storage/API. O medidor do inversor, quando possível, também em Modbus/LAN
+em vez de poll Tuya 30 s.
 
 ## Próximos passos de código (quando o medidor do inversor existir)
 
