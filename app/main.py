@@ -41,6 +41,15 @@ def create_app() -> FastAPI:
 
     scheduler = PollingScheduler(timezone=settings.scheduler_timezone)
 
+    def _collectors_enabled() -> bool:
+        return bool(get_runtime_settings().get("collectors_enabled", True))
+
+    def _run_poll(fn, label: str):
+        if not _collectors_enabled():
+            print(f"[collectors] {label} pulado (coleta desligada na UI)")
+            return
+        fn()
+
     def _run_postgres_flush():
         rt = get_runtime_settings()
         if not rt.get("postgres_flush_enabled", True):
@@ -50,7 +59,7 @@ def create_app() -> FastAPI:
 
     def reschedule_postgres_flush():
         if not getattr(app.state, "is_scheduler_owner", False):
-            return  # instância secundária: não é dona do scheduler, nada a reagendar
+            return
         rt = get_runtime_settings()
         minutes = int(rt.get("postgres_flush_interval_minutes") or 30)
         seconds = max(60, minutes * 60)
@@ -61,7 +70,25 @@ def create_app() -> FastAPI:
             scheduler.remove_job("postgres_flush")
             print("[postgres_mirror] job removido (flush desligado)")
 
+    def reschedule_collectors():
+        if not getattr(app.state, "is_scheduler_owner", False):
+            return
+        rt = get_runtime_settings()
+        seconds = int(rt.get("collectors_interval_seconds") or 180)
+        seconds = max(30, min(3600, seconds))
+        enabled = bool(rt.get("collectors_enabled", True))
+        if not enabled:
+            for jid in ("poll_modbus", "poll_modbus_tcp", "poll_tuya"):
+                scheduler.remove_job(jid)
+            print("[collectors] jobs removidos (coleta desligada)")
+            return
+        scheduler.add_job(lambda: _run_poll(poll_modbus_devices, "modbus"), seconds=seconds, id="poll_modbus")
+        scheduler.add_job(lambda: _run_poll(poll_modbus_tcp_devices, "modbus_tcp"), seconds=seconds, id="poll_modbus_tcp")
+        scheduler.add_job(lambda: _run_poll(poll_tuya_devices, "tuya"), seconds=seconds, id="poll_tuya")
+        print(f"[collectors] jobs agendados a cada {seconds}s")
+
     app.state.reschedule_postgres_flush = reschedule_postgres_flush
+    app.state.reschedule_collectors = reschedule_collectors
 
     @app.on_event("startup")
     def on_startup():
@@ -75,9 +102,7 @@ def create_app() -> FastAPI:
             )
             return
         scheduler.start()
-        scheduler.add_job(lambda: poll_modbus_devices(), seconds=30, id="poll_modbus")
-        scheduler.add_job(lambda: poll_modbus_tcp_devices(), seconds=30, id="poll_modbus_tcp")
-        scheduler.add_job(lambda: poll_tuya_devices(), seconds=30, id="poll_tuya")  # Tuya REAL data!
+        reschedule_collectors()
         reschedule_postgres_flush()
 
     @app.on_event("shutdown")
@@ -88,4 +113,3 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
-

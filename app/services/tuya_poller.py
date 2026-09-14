@@ -282,9 +282,9 @@ def parse_dual_meter_data(data_dict: Dict[str, Any], device_config: Dict) -> Dic
     if "freq" in data_dict:
         metrics["frequency"] = float(data_dict["freq"]) / 100.0
 
-    # Potência líquida do aparelho (DP real). No card monofásico usamos módulo.
+    # Potência líquida do aparelho (DP real). Escala Tuya: 0.1 W (igual cur_power).
     if "total_power" in data_dict:
-        raw_total = float(data_dict["total_power"])
+        raw_total = float(data_dict["total_power"]) / 10.0
         metrics["power_signed"] = raw_total
         metrics["power"] = abs(raw_total)
     if "forward_energy_total" in data_dict:
@@ -310,7 +310,8 @@ def parse_dual_meter_data(data_dict: Dict[str, Any], device_config: Dict) -> Dic
         fwd_key = f"energy_forword_{ch}"  # sic - typo oficial Tuya
         rev_key = f"energy_reserse_{ch}" if ch == "b" else f"energy_reverse_{ch}"
 
-        power_signed = float(data_dict.get(power_key, 0.0))
+        # power_*: 0.1 W; current_*: mA
+        power_signed = float(data_dict.get(power_key, 0.0)) / 10.0
         current_signed = float(data_dict.get(current_key, 0.0)) / 1000.0
         power_mag = abs(power_signed)
         current_mag = abs(current_signed)
@@ -461,6 +462,8 @@ def poll_tuya_devices():
         if measurements_count > 0:
             db.commit()
             print(f"   [OK] {measurements_count} medicao(oes) salva(s) no banco")
+            from app.services.collector_stats import note_poll_success
+            note_poll_success(points=measurements_count)
         else:
             print(f"   [INFO] Nenhuma medicao para salvar")
     

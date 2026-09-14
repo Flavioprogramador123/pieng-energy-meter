@@ -52,6 +52,34 @@ function setLiveStatus(mode) {
   const mm = String(now.getMinutes()).padStart(2, '0');
   const ss = String(now.getSeconds()).padStart(2, '0');
   text.textContent = `Ao vivo · ${hh}:${mm}:${ss} · a cada ${AUTO_REFRESH_MS / 1000}s`;
+  refreshCollectStatus();
+}
+
+function fmtCollectClock(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+}
+
+async function refreshCollectStatus() {
+  const node = el('collectStatusText');
+  if (!node) return;
+  try {
+    const s = await fetchJSON('/api/db/collector-live');
+    const last = fmtCollectClock(s.last_collection_at);
+    const pts = Number(s.points_today || 0).toLocaleString('pt-BR');
+    const cycles = Number(s.poll_cycles_today || 0).toLocaleString('pt-BR');
+    if (s.collectors_enabled === false) {
+      node.textContent = `Coleta OFF · última ${last} · hoje ${pts} pts`;
+      node.classList.add('is-off');
+    } else {
+      node.textContent = `Última coleta ${last} · hoje ${cycles} ciclos / ${pts} pts`;
+      node.classList.remove('is-off');
+    }
+  } catch (_) {
+    /* silencioso — badge secundário */
+  }
 }
 
 let charts = {};

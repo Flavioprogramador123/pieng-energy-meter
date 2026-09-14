@@ -16,6 +16,13 @@
     return String(v);
   }
 
+  function fmtClock(iso) {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return String(iso);
+    return d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  }
+
   async function refreshStatus() {
     const data = await api('/api/db/status');
     const m = data.mirror || {};
@@ -27,9 +34,23 @@
         `<span class="badge badge-ok">ONLINE</span>`,
         `<div>${fmt(m.version)}</div>`,
         `<div class="muted">host: ${fmt(m.url_host)}</div>`,
-        `<div class="muted">data_directory: ${fmt(m.data_directory)}</div>`,
-        `<div class="muted">hot_path: ${fmt(data.hot_path)} (Dashboard lê daqui)</div>`,
+        `<div class="muted">${fmt(data.hot_explanation)}</div>`,
+        `<div class="muted">${fmt(data.scheduler_owner_note)}</div>`,
       ].join('');
+    }
+
+    const c = data.collectors || {};
+    if ($('#collectors-enabled')) $('#collectors-enabled').checked = !!c.enabled;
+    if ($('#collectors-interval')) $('#collectors-interval').value = c.interval_seconds || 180;
+    if ($('#watchdog-enabled')) $('#watchdog-enabled').checked = !!c.watchdog_enabled;
+    if ($('#watchdog-stale')) $('#watchdog-stale').value = c.watchdog_stale_minutes || 12;
+    const live = $('#collectors-live');
+    if (live) {
+      const st = c.stats || {};
+      live.textContent =
+        `Última coleta: ${fmtClock(c.last_measurement_at || st.last_success_at)} | ` +
+        `ciclos hoje: ${st.poll_cycles_today ?? 0} | ` +
+        `pontos hoje (DB): ${c.db_points_today ?? 0}`;
     }
 
     const rt = data.flush || {};
@@ -100,6 +121,28 @@
     }
   });
 
+  const collectorsForm = $('#collectors-form');
+  if (collectorsForm) {
+    collectorsForm.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      try {
+        await api('/api/db/settings', {
+          method: 'PATCH',
+          body: JSON.stringify({
+            collectors_enabled: $('#collectors-enabled').checked,
+            collectors_interval_seconds: Number($('#collectors-interval').value),
+            watchdog_enabled: $('#watchdog-enabled').checked,
+            watchdog_stale_minutes: Number($('#watchdog-stale').value),
+          }),
+        });
+        await refreshStatus();
+        alert('Coleta/Watchdog salvos. Intervalo reaplicado sem reiniciar (se este processo for o dono dos pollers).');
+      } catch (e) {
+        alert(e.message || e);
+      }
+    });
+  }
+
   $('#flush-form').addEventListener('submit', async (ev) => {
     ev.preventDefault();
     try {
@@ -112,7 +155,7 @@
         }),
       });
       await refreshStatus();
-      alert('Configuração salva. O intervalo do flush foi reaplicado.');
+      alert('Flush salvo.');
     } catch (e) {
       alert(e.message || e);
     }

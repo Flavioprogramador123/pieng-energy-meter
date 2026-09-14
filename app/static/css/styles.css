@@ -208,7 +208,8 @@ html[data-theme="light"] .filters{background:var(--bg-1);backdrop-filter:none}
   margin-left:auto;
   display:inline-flex;
   align-items:center;
-  gap:8px;
+  flex-wrap:wrap;
+  gap:8px 12px;
   color:var(--text-faint);
   font-size:12px;
   font-variant-numeric:tabular-nums;
@@ -222,6 +223,12 @@ html[data-theme="light"] .filters{background:var(--bg-1);backdrop-filter:none}
 }
 .live-status.is-error{color:var(--danger, #e74c3c)}
 .live-status.is-error .live-dot{background:var(--danger, #e74c3c)}
+.collect-status{
+  padding-left:10px;
+  border-left:1px solid var(--border);
+  color:var(--text-muted, var(--text-faint));
+}
+.collect-status.is-off{color:var(--warn, #e67e22)}
 .filters select,
 .filters input,
 select,

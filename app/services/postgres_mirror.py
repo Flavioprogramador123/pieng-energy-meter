@@ -1,7 +1,8 @@
-"""Espelho Postgres no HD K: — status, leitura de tabelas e flush incremental.
+"""Postgres (banco único no F:) — status, leitura de tabelas e flush legado.
 
-A app CONTINUA usando SQLite (DATABASE_URL / hot path).
-Este módulo só copia dados REAIS do SQLite para o Postgres de espelho.
+Desde 2026-09-11 a app usa Postgres (DATABASE_URL) como banco único.
+Data dir vivo: F:\\storage\\postgres\\energy_meter\\pgdata (K: = backup).
+O flush SQLite→Postgres só roda se DATABASE_URL ainda for sqlite (legado).
 """
 from __future__ import annotations
 
@@ -35,7 +36,7 @@ _LAST_STATUS: dict[str, Any] = {
 
 
 def mirror_url() -> str:
-    """URL do Postgres espelho (HD K:). Override via POSTGRES_MIRROR_URL no .env."""
+    """URL do Postgres (localhost). Override via POSTGRES_MIRROR_URL no .env."""
     if getattr(settings, "postgres_mirror_url", None):
         return settings.postgres_mirror_url  # type: ignore[return-value]
     user = settings.postgres_user or "energy_meter"
@@ -142,9 +143,24 @@ def list_table_rows(table: str, limit: int = 50, offset: int = 0) -> dict[str, A
 
 
 def flush_sqlite_to_postgres() -> dict[str, Any]:
-    """Copia incrementalmente do SQLite (hot) para o Postgres (espelho no K:)."""
+    """Copia incrementalmente do SQLite para o Postgres (legado).
+
+    No-op se DATABASE_URL já for Postgres (banco único no F:).
+    """
     started = datetime.now(timezone.utc)
     copied: dict[str, int] = {}
+    if not str(settings.database_url).startswith("sqlite"):
+        result = {
+            "ok": True,
+            "last_run_at": started.isoformat(),
+            "last_error": None,
+            "copied": {},
+            "duration_ms": 0,
+            "skipped": "DATABASE_URL ja e Postgres (banco unico no F:) — flush desnecessario",
+        }
+        _set_status(**result)
+        print(f"[postgres_mirror] {result['skipped']}")
+        return result
     try:
         postgres_engine = get_mirror_engine()
         Base.metadata.create_all(bind=postgres_engine)

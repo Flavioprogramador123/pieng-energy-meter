@@ -4,7 +4,8 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     app_name: str = "Energy Meter Master"
     api_prefix: str = "/api"
-    database_url: str = "sqlite:///./data/app.db"
+    # Fonte única: Postgres nativo (data dir em F: — ver docs/SETUP_POSTGRES_NATIVO_K.md)
+    database_url: str = "postgresql://energy_meter:energy_meter_dev_only@localhost:5432/energy_meter"
     enable_forwarding: bool = True
     forwarder_url: str | None = None
     scheduler_timezone: str = "UTC"
@@ -20,8 +21,8 @@ class Settings(BaseSettings):
     firebase_credentials_path: str | None = None
     firebase_collection: str = "readings"
 
-    # Postgres espelho no HD K: (flush SQLite -> Postgres). A app hot path
-    # continua em DATABASE_URL (SQLite). Ver docs/SETUP_POSTGRES_NATIVO_K.md
+    # Credenciais Postgres (mesmo cluster do DATABASE_URL). Flush SQLite→PG
+    # ficou legado — só roda se DATABASE_URL ainda for sqlite.
     postgres_user: str | None = None
     postgres_password: str | None = None
     postgres_db: str | None = None

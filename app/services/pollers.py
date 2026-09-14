@@ -21,6 +21,7 @@ if not logger.handlers:
 def poll_modbus_devices():
     """Poller para dispositivos Modbus RTU (serial)."""
     db: Session = SessionLocal()
+    total_points = 0
     try:
         devices = crud.list_devices(db)
         for d in devices:
@@ -56,11 +57,15 @@ def poll_modbus_devices():
                             crud.create_measurement(db, schemas.MeasurementCreate(device_id=d.id, metric=metric, value=float(val)))
                             saved_metrics[metric] = float(val)
                 firebase_sync.push_reading(d.id, d.name, "modbus", saved_metrics)
+                total_points += len(saved_metrics)
             except Exception as e:
                 logger.error(f"POLL_RTU_ERROR | device_id={d.id} | name={d.name} | error={str(e)}")
                 print(f"Erro ao ler dispositivo Modbus RTU {d.id} ({d.name}): {e}")
                 continue
         db.commit()
+        if total_points > 0:
+            from .collector_stats import note_poll_success
+            note_poll_success(points=total_points)
     finally:
         db.close()
 
@@ -68,6 +73,7 @@ def poll_modbus_devices():
 def poll_modbus_tcp_devices():
     """Poller para dispositivos Modbus TCP (Elfin-EW11A, conversores RS485-WiFi, etc)."""
     db: Session = SessionLocal()
+    total_points = 0
     try:
         devices = crud.list_devices(db)
         for d in devices:
@@ -107,11 +113,15 @@ def poll_modbus_tcp_devices():
                             crud.create_measurement(db, schemas.MeasurementCreate(device_id=d.id, metric=metric, value=float(val)))
                             saved_metrics[metric] = float(val)
                 firebase_sync.push_reading(d.id, d.name, "modbus_tcp", saved_metrics)
+                total_points += len(saved_metrics)
             except Exception as e:
                 logger.error(f"POLL_TCP_ERROR | device_id={d.id} | name={d.name} | host={cfg.get('host')} | error={str(e)}")
                 print(f"Erro ao ler dispositivo Modbus TCP {d.id} ({d.name}): {e}")
                 continue
         db.commit()
+        if total_points > 0:
+            from .collector_stats import note_poll_success
+            note_poll_success(points=total_points)
     finally:
         db.close()
 

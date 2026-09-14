@@ -1,5 +1,9 @@
 {
-  "postgres_flush_enabled": true,
+  "postgres_flush_enabled": false,
   "postgres_flush_interval_minutes": 30,
-  "sqlite_cache_max_mb": 200
+  "sqlite_cache_max_mb": 200,
+  "collectors_enabled": true,
+  "collectors_interval_seconds": 180,
+  "watchdog_enabled": true,
+  "watchdog_stale_minutes": 12
 }

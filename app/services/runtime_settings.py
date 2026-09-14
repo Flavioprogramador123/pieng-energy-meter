@@ -1,7 +1,7 @@
 """Configurações runtime persistidas em data/runtime_settings.json.
 
-Permite o usuário alterar intervalo de flush SQLite→Postgres pela UI
-sem editar .env nem reiniciar o processo (o job é reescalonado).
+Permite alterar flush, coleta (pollers) e watchdog pela UI sem editar .env.
+Jobs são reescalonados em quente quando possível.
 """
 from __future__ import annotations
 
@@ -14,11 +14,15 @@ _LOCK = threading.Lock()
 _PATH = Path("data/runtime_settings.json")
 
 _DEFAULTS: dict[str, Any] = {
-    "postgres_flush_enabled": True,
-    # Teste no escritório (máquina não dedicada): 30 min reduz I/O no HD K:
+    "postgres_flush_enabled": False,
     "postgres_flush_interval_minutes": 30,
-    # Teto do SQLite hot enquanto o storage está fora (~3 dias c/ ~3 aparelhos)
     "sqlite_cache_max_mb": 200,
+    # Coleta (pollers Modbus/Tuya) — máquina de teste: pode desligar pela UI
+    "collectors_enabled": True,
+    "collectors_interval_seconds": 180,
+    # Watchdog externo (scripts/watchdog_collectors.ps1) lê este flag
+    "watchdog_enabled": True,
+    "watchdog_stale_minutes": 12,
 }
 
 
@@ -33,6 +37,10 @@ def _ensure() -> dict[str, Any]:
             return dict(_DEFAULTS)
         merged = dict(_DEFAULTS)
         merged.update({k: data[k] for k in _DEFAULTS if k in data})
+        # preserva chaves extras antigas sem apagar
+        for k, v in data.items():
+            if k not in merged:
+                merged[k] = v
         return merged
     except Exception:
         return dict(_DEFAULTS)
@@ -50,18 +58,20 @@ def update_runtime_settings(**kwargs: Any) -> dict[str, Any]:
             data["postgres_flush_enabled"] = bool(kwargs["postgres_flush_enabled"])
         if "postgres_flush_interval_minutes" in kwargs and kwargs["postgres_flush_interval_minutes"] is not None:
             minutes = int(kwargs["postgres_flush_interval_minutes"])
-            if minutes < 1:
-                minutes = 1
-            if minutes > 24 * 60:
-                minutes = 24 * 60
-            data["postgres_flush_interval_minutes"] = minutes
+            data["postgres_flush_interval_minutes"] = max(1, min(24 * 60, minutes))
         if "sqlite_cache_max_mb" in kwargs and kwargs["sqlite_cache_max_mb"] is not None:
             mb = int(kwargs["sqlite_cache_max_mb"])
-            if mb < 50:
-                mb = 50
-            if mb > 50_000:
-                mb = 50_000
-            data["sqlite_cache_max_mb"] = mb
+            data["sqlite_cache_max_mb"] = max(50, min(50_000, mb))
+        if "collectors_enabled" in kwargs and kwargs["collectors_enabled"] is not None:
+            data["collectors_enabled"] = bool(kwargs["collectors_enabled"])
+        if "collectors_interval_seconds" in kwargs and kwargs["collectors_interval_seconds"] is not None:
+            sec = int(kwargs["collectors_interval_seconds"])
+            data["collectors_interval_seconds"] = max(30, min(3600, sec))
+        if "watchdog_enabled" in kwargs and kwargs["watchdog_enabled"] is not None:
+            data["watchdog_enabled"] = bool(kwargs["watchdog_enabled"])
+        if "watchdog_stale_minutes" in kwargs and kwargs["watchdog_stale_minutes"] is not None:
+            stale = int(kwargs["watchdog_stale_minutes"])
+            data["watchdog_stale_minutes"] = max(5, min(240, stale))
         _PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
         return dict(data)
 
@@ -71,7 +81,7 @@ def sqlite_db_path() -> Path:
 
 
 def sqlite_cache_status() -> dict[str, Any]:
-    """Tamanho atual do SQLite vs teto de cache (quando storage está fora)."""
+    """Tamanho atual do SQLite vs teto de cache (legado)."""
     rt = get_runtime_settings()
     max_mb = float(rt.get("sqlite_cache_max_mb") or 200)
     path = sqlite_db_path()
@@ -86,7 +96,6 @@ def sqlite_cache_status() -> dict[str, Any]:
         "used_pct": round(pct, 1),
         "over_limit": size_mb >= max_mb,
         "note": (
-            "SQLite é o hot path: se o K:/Postgres ficar fora, os dados ficam aqui "
-            "até o flush descarregar. Teto 200 MB ≈ 3 dias com ~3 aparelhos (teste)."
+            "SQLite legado (arquivo arquivado). Banco unico = Postgres no F:."
         ),
     }

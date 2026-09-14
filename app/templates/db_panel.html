@@ -1,12 +1,12 @@
 {% extends "base.html" %}
-{% block title %}Banco / Storage — Energy Meter{% endblock %}
+{% block title %}Banco / Coleta — Energy Meter{% endblock %}
 
 {% block content %}
 <main class="page db-page">
   <section class="page-header">
     <div>
-      <h1>Banco &amp; Storage</h1>
-      <p class="muted">Hot path = SQLite (NVMe). Espelho = Postgres no HD <code>K:\STORAGE</code>.</p>
+      <h1>Banco &amp; Coleta</h1>
+      <p class="muted">Máquina de <strong>teste</strong> — Postgres no <code>F:</code>. Desligue a coleta/watchdog quando não for usar.</p>
     </div>
     <div class="header-actions">
       <button type="button" class="btn" id="btn-refresh">Atualizar</button>
@@ -17,20 +17,47 @@
   <section class="card help-card" id="help-db">
     <h2>O que é o quê?</h2>
     <ul class="help-list">
-      <li><strong>SQLite</strong> — onde a coleta grava a cada ~30s e o Dashboard lê. É o “quente”.</li>
-      <li><strong>Postgres (K:)</strong> — cópia no HD do escritório. O <em>flush</em> copia do SQLite para cá de tempos em tempos.</li>
-      <li><strong>DATABASE_URL</strong> — se trocássemos agora, a app passaria a usar <em>só</em> o Postgres. Ainda não fazemos isso: o HD USB pode oscilar; o SQLite no NVMe é mais seguro para coletar.</li>
+      <li><strong>Coleta (pollers)</strong> — a cada N segundos busca Tuya/Modbus e grava no Postgres. Desligue se for pausar o PC de teste.</li>
+      <li><strong>Watchdog</strong> — tarefa Windows que reinicia o Meter se ficar sem dados novos. Desligue junto com a coleta.</li>
+      <li><strong>Postgres (F:)</strong> — banco único vivo. Flush SQLite→PG é legado (normalmente desligado).</li>
     </ul>
   </section>
 
   <section class="grid-2">
-    <article class="card" id="card-status">
-      <h2>Status do espelho</h2>
-      <div id="mirror-status" class="mono muted">Carregando…</div>
+    <article class="card" id="card-collectors">
+      <h2>Coleta &amp; Watchdog (teste)</h2>
+      <form id="collectors-form" class="flush-form">
+        <label class="field-check">
+          <input type="checkbox" id="collectors-enabled" />
+          Coleta automática ligada
+        </label>
+        <label class="field">
+          Intervalo da coleta (segundos)
+          <input type="number" id="collectors-interval" min="30" max="3600" step="30" />
+        </label>
+        <label class="field-check">
+          <input type="checkbox" id="watchdog-enabled" />
+          Watchdog ligado (reinicia se coleta parar)
+        </label>
+        <label class="field">
+          Watchdog: minutos sem dados para reiniciar
+          <input type="number" id="watchdog-stale" min="5" max="240" step="1" />
+        </label>
+        <p class="hint muted">Nesta máquina de teste, desmarque Coleta + Watchdog quando for desligar o PC ou pausar a cota Tuya.</p>
+        <button type="submit" class="btn btn-primary">Salvar coleta</button>
+        <div id="collectors-live" class="mono muted flush-last"></div>
+      </form>
     </article>
 
+    <article class="card" id="card-status">
+      <h2>Status do banco</h2>
+      <div id="mirror-status" class="mono muted">Carregando…</div>
+    </article>
+  </section>
+
+  <section class="grid-2">
     <article class="card" id="card-settings">
-      <h2>Configurações do flush</h2>
+      <h2>Flush legado (SQLite → Postgres)</h2>
       <form id="flush-form" class="flush-form">
         <label class="field-check">
           <input type="checkbox" id="flush-enabled" />
@@ -44,24 +71,24 @@
           Teto cache SQLite (MB)
           <input type="number" id="cache-max-mb" min="50" max="50000" step="10" />
         </label>
-        <p class="hint muted">Padrão teste: flush 30 min · cache 200 MB (~3 dias com ~3 aparelhos). Se o K: ficar fora, os dados ficam no SQLite até descarregar.</p>
-        <button type="submit" class="btn btn-primary">Salvar</button>
+        <p class="hint muted">Com banco único no F:, deixe o flush <em>desligado</em>.</p>
+        <button type="submit" class="btn btn-primary">Salvar flush</button>
         <div id="flush-last" class="mono muted flush-last"></div>
         <div id="cache-status" class="mono muted flush-last"></div>
       </form>
     </article>
-  </section>
 
-  <section class="card">
-    <h2>Contagens SQLite × Postgres</h2>
-    <div class="table-wrap">
-      <table class="data-table" id="counts-table">
-        <thead>
-          <tr><th>Tabela</th><th>SQLite (hot)</th><th>Postgres (K:)</th><th>Diferença</th></tr>
-        </thead>
-        <tbody></tbody>
-      </table>
-    </div>
+    <article class="card">
+      <h2>Contagens</h2>
+      <div class="table-wrap">
+        <table class="data-table" id="counts-table">
+          <thead>
+            <tr><th>Tabela</th><th>SQLite</th><th>Postgres (F:)</th><th>Diferença</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </article>
   </section>
 
   <section class="card">
@@ -91,5 +118,5 @@
 {% endblock %}
 
 {% block extra_scripts %}
-<script src="/static/js/db_panel.js?v=1"></script>
+<script src="/static/js/db_panel.js?v=2"></script>
 {% endblock %}

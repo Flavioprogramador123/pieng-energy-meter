@@ -1,91 +1,44 @@
 {
   "project": "pieng-energy-meter",
-  "last_session_date": "2026-09-10",
-  "summary": "HOME funcional; cota Tuya Trial inviabiliza poll 30s. Nova estrategia: medicao Elfin+PZEM (Modbus), spool local, banco nuvem/central, Tuya so pontual. Mobile/Flutter e gateway LTE como opcoes de envio.",
+  "last_session_date": "2026-09-11",
+  "summary": "cca-tecnica: Postgres migrado K(HDD)->F(SSD principal). Banco unico. RDP/Tailscale/DB Manager. Registro em pieng_postgres/REGISTRO.md.",
+  "host": {
+    "windows": "CCA_TECNICA",
+    "tailscale_name": "cca-tecnica",
+    "tailscale_ip": "100.104.172.12",
+    "magicdns": "cca-tecnica.tail8bc257.ts.net"
+  },
+  "storage": {
+    "principal": "F:\\storage\\postgres\\energy_meter\\pgdata",
+    "backup": "K:\\storage",
+    "f_label": "STORAGE_PRINCIPAL",
+    "k_label": "STORAGE",
+    "migration_script": "pieng_postgres/scripts/host/migrate_pgdata_k_to_f.ps1",
+    "validated_measurements": 71086
+  },
   "strategy_shift_2026_09_10": {
     "doc": "docs/ESTRATEGIA_SPOOL_LOCAL_NUVEM.md",
-    "why": "Trial Tuya ~26k API calls/mes e ~10 controlaveis; 2 medidores/30s ~173k calls/mes; 60001001 = pool controlavel",
-    "hardware_priority": ["Elfin EW11 Modbus TCP", "PZEM-004T Modbus RTU"],
-    "architecture": {
-      "edge": "spool local (SQLite/fila) coleta mesmo offline",
-      "cloud": "Postgres central (pieng_postgres) recebe flush",
-      "apps": "Dashboard + HOME + Flutter leem a nuvem/API",
-      "tuya_role": "comando ocasional / ponte temporaria; nao coleta 30s"
-    },
-    "mobile_hypothesis": "Flutter para painel e opcionalmente ponte/diagnostico em campo; coletor 24/7 deve ser edge fixo (mini PC ou USR-G771 etc.)",
-    "pending_actions": [
-      "Reduzir ou pausar poller Tuya de medidores",
-      "Validar Elfin IP + PZEM COMx e cadastrar como fonte oficial",
-      "Contrato do spool (lote, retry, idempotencia)",
-      "Definir edge (mini PC casa vs LTE gateway)",
-      "Postgres central via Tailscale",
-      "HOME sem auto-refresh agressivo",
-      "Prototipo Flutter na API PIENG"
-    ]
+    "why": "Trial Tuya quota; priorizar Elfin/PZEM + spool",
+    "cloud": "Postgres central no cca-tecnica (agora em F:)"
   },
   "current_architecture": {
     "database": {
-      "production_hot": "SQLite (data/app.db) - fonte de verdade da coleta/Dashboard. NAO cortar sem avisar.",
-      "mirror_postgres": "PostgreSQL 17 nativo, data em K:\\storage\\postgres\\energy_meter\\pgdata. Flush incremental via job postgres_flush (runtime_settings).",
-      "flush": {
-        "file": "data/runtime_settings.json",
-        "ui": "/api/db",
-        "default_minutes": 30,
-        "sqlite_cache_max_mb": 200,
-        "rationale": "Prototipo do padrao spool→espelho. Generalizar para edge→nuvem.",
-        "note": "Enquanto o flush nao roda, a UI e a coleta usam SQLite. O Postgres e copia atrasada."
-      },
-      "test_postgres_docker": "docker-compose.yml PRESERVADO. Volume K:/storage/postgres/energy_meter_docker porta 5433. Docker ainda nao instalado.",
-      "database_url_explanation": "DATABASE_URL = banco que a APP inteira usa. Trocar para Postgres faria cada poll depender do USB. Por isso ainda nao trocamos — usamos flush/espelho."
+      "production_hot": "PostgreSQL 17 — F:\\storage\\postgres\\energy_meter\\pgdata",
+      "sqlite_legacy": "data/app.db.archived_20260911",
+      "flush": { "postgres_flush_enabled": false },
+      "database_url_explanation": "DATABASE_URL = Postgres local (banco unico)."
     },
     "remote_access_plan": {
-      "status": "Computador autenticado no Tailscale (ex.: 100.126.2.58); storage/K: no PC do HD",
-      "recommended": "Tailscale; dashboard/API pelo IP privado; Postgres :5432 so pela VPN",
-      "owner": "pieng_postgres / REMOTE_ACCESS.md",
-      "future_alternative": "WireGuard entre MikroTiks"
-    },
-    "storage_k": {
-      "volume_label": "STORAGE",
-      "root": "K:\\storage"
-    },
-    "devices_registered": {
-      "id_5": "medidorCASA (tuya tdq) - migrar prioridade para Elfin/PZEM"
+      "status": "RDP+Postgres+DB Manager via Tailscale",
+      "registro": "pieng_postgres/REGISTRO.md",
+      "setup_script": "scripts/setup_remote_server.ps1"
     }
-  },
-  "home_ui_direction": {
-    "status": "web /home funcional; Flutter/React+Babylon como proximos testes",
-    "doc": "docs/HOME_UI_STACK.md",
-    "ajuste_importante": "Nao usamos Home Assistant; fonte = /home/api/*"
-  },
-  "home_live_validation_2026_09_09": {
-    "ok": [
-      "interruptores sala/frente",
-      "Ar Consul T24/T23/PowerOff via hub IR"
-    ],
-    "tuya_quota_error": {
-      "device_id": "eb5a1f91b343c565846oqi",
-      "code": 60001001,
-      "msg": "Your controllable device pool quota is insufficient.",
-      "fix": "Console Tuya IoT (pool controlavel / cota do plano)"
-    }
-  },
-  "pending_next_steps": [
-    "Seguir docs/ESTRATEGIA_SPOOL_LOCAL_NUVEM.md",
-    "Validar Elfin + PZEM e reduzir poller Tuya",
-    "HOME visual: prototipo Flutter",
-    "Tailscale no PC do storage"
-  ],
-  "git": {
-    "branch": "feature/home-module",
-    "pr": "https://github.com/Flavioprogramador123/pieng-energy-meter/pull/1"
   },
   "docs": [
-    "docs/ESTRATEGIA_SPOOL_LOCAL_NUVEM.md",
-    "docs/HOME_UI_STACK.md",
-    "CHANGELOG.md",
-    "docs/ROADMAP_CASA_INVERSOR_NUVEM.md",
+    "pieng_postgres/REGISTRO.md",
     "pieng_postgres/REMOTE_ACCESS.md",
-    "home/README.md",
-    ".claude/session_context.json"
+    "docs/SETUP_REMOTE_SERVER.md",
+    "docs/SETUP_POSTGRES_NATIVO_K.md",
+    "docs/ESTRATEGIA_SPOOL_LOCAL_NUVEM.md"
   ]
 }

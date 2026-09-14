@@ -5,7 +5,7 @@
 
 {% block extra_head %}
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-  <script defer src="/static/js/dashboard.js?v=21"></script>
+  <script defer src="/static/js/dashboard.js?v=22"></script>
 {% endblock %}
 
 {% block content %}
@@ -34,9 +34,10 @@
 
     <button id="refreshBtn">Atualizar</button>
     <button id="configBtn" class="btn-config" title="Configurações">&#9881;</button>
-    <span id="liveStatus" class="live-status" title="Os gráficos buscam dados novos na API sem recarregar a página">
+    <span id="liveStatus" class="live-status" title="Atualização dos gráficos + status da coleta">
       <span class="live-dot" aria-hidden="true"></span>
       <span id="liveStatusText">Ao vivo · a cada 30s</span>
+      <span id="collectStatusText" class="collect-status">Última coleta — · hoje 0</span>
     </span>
   </section>
 
