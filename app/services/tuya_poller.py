@@ -285,6 +285,10 @@ def parse_dual_meter_data(data_dict: Dict[str, Any], device_config: Dict) -> Dic
     # Potência líquida do aparelho (DP real). Escala Tuya: 0.1 W (igual cur_power).
     if "total_power" in data_dict:
         raw_total = float(data_dict["total_power"]) / 10.0
+        v_line = float(metrics.get("voltage") or 0.0)
+        # Mesmo cinto: total_power cru às vezes chega sem escala.
+        if v_line > 0 and abs(raw_total) > v_line * 50:  # >~12 kW @ 240V = suspeito p/ 1 CT
+            raw_total = raw_total / 10.0
         metrics["power_signed"] = raw_total
         metrics["power"] = abs(raw_total)
     if "forward_energy_total" in data_dict:
@@ -313,6 +317,12 @@ def parse_dual_meter_data(data_dict: Dict[str, Any], device_config: Dict) -> Dic
         # power_*: 0.1 W; current_*: mA
         power_signed = float(data_dict.get(power_key, 0.0)) / 10.0
         current_signed = float(data_dict.get(current_key, 0.0)) / 1000.0
+        # Cinto de segurança: se ainda parecer escala crua (P >> V*I), divide de novo.
+        v_line = float(metrics.get("voltage") or 0.0)
+        if v_line > 0 and abs(current_signed) > 0:
+            apparent = v_line * abs(current_signed)
+            if apparent > 0 and abs(power_signed) > apparent * 2.5:
+                power_signed = power_signed / 10.0
         power_mag = abs(power_signed)
         current_mag = abs(current_signed)
         forward_kwh = float(data_dict.get(fwd_key, 0.0)) / 100.0
