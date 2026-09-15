@@ -59,6 +59,13 @@ ou o IP `100.x` que o script imprimir.
 - Rode este script **na maquina que sera acessada** (destino do RDP)
 - Confirme ping: `ping cca-tecnica` ou `ping 100.104.172.12`
 
+## Ponte Meter 24/7 (exe no F: da CCA)
+
+Amanhã: colocar `EnergyMeterServer.exe` em `F:\storage\pieng\` para servir
+dashboard/API via Tailscale de qualquer lugar (efeito “Vercel” privado).
+
+Guia completo: [`docs/SETUP_EXE_CCA_F.md`](SETUP_EXE_CCA_F.md)
+
 ## Nomes MagicDNS
 
 Painel: https://login.tailscale.com/admin/machines

@@ -67,14 +67,22 @@ async function refreshCollectStatus() {
   if (!node) return;
   try {
     const s = await fetchJSON('/api/db/collector-live');
+    if (s.interval_seconds) {
+      const ms = Math.max(30000, Number(s.interval_seconds) * 1000);
+      if (ms !== AUTO_REFRESH_MS) {
+        AUTO_REFRESH_MS = ms;
+        restartAutoRefresh();
+      }
+    }
     const last = fmtCollectClock(s.last_collection_at);
     const pts = Number(s.points_today || 0).toLocaleString('pt-BR');
     const cycles = Number(s.poll_cycles_today || 0).toLocaleString('pt-BR');
+    const poll = s.interval_seconds || Math.round(AUTO_REFRESH_MS / 1000);
     if (s.collectors_enabled === false) {
       node.textContent = `Coleta OFF · última ${last} · hoje ${pts} pts`;
       node.classList.add('is-off');
     } else {
-      node.textContent = `Última coleta ${last} · hoje ${cycles} ciclos / ${pts} pts`;
+      node.textContent = `Última coleta ${last} · hoje ${cycles} ciclos / ${pts} pts · poll ${poll}s`;
       node.classList.remove('is-off');
     }
   } catch (_) {
@@ -84,12 +92,22 @@ async function refreshCollectStatus() {
 
 let charts = {};
 let currentPeriod = '1d';
-const AUTO_REFRESH_MS = 30000;
+/** Segue collectors_interval_seconds (default 180s = 3 min). */
+let AUTO_REFRESH_MS = 180000;
 let loadInFlight = false;
+let _autoRefreshTimer = null;
+
+function restartAutoRefresh() {
+  if (_autoRefreshTimer) clearInterval(_autoRefreshTimer);
+  _autoRefreshTimer = setInterval(() => {
+    if (document.hidden) return;
+    if (typeof window.__piengRefreshCharts === 'function') window.__piengRefreshCharts();
+  }, AUTO_REFRESH_MS);
+}
 
 // Zoom de tempo compartilhado por todos os cards (gráficos e valores ao vivo).
 // null = período completo carregado; senão {from, to} em epoch ms, absoluto
-// (não normalizado), pra não derivar quando os dados são atualizados a cada 30s.
+// (não normalizado), pra não derivar quando os dados são atualizados a cada poll.
 let timeWindow = null;
 let fullRange = { min: null, max: null };
 let rawCache = null; // último resultado bruto do fetch, pra reprocessar sem rede ao mexer no zoom
@@ -601,7 +619,7 @@ function renderFromCache() {
       );
     } else if (!hasEnergyMetrics && !hasSwitch) {
       setIntegrityBanner(
-        `<strong>Sem medições:</strong> o sistema não inventa dados. Cadastre/ative um medidor e aguarde o poller (30s).`,
+        `<strong>Sem medições:</strong> o sistema não inventa dados. Cadastre/ative um medidor e aguarde o poller (${Math.round(AUTO_REFRESH_MS / 1000)}s).`,
         true
       );
     } else {
@@ -1329,14 +1347,15 @@ window.addEventListener('DOMContentLoaded', () => {
   updatePeriodRangeLabel();
   loadAlarmRules();
   loadData();
-  setInterval(() => {
-    // Período passado fixo: não auto-atualiza (evita “pular” o histórico).
+  window.__piengRefreshCharts = () => {
     if (anchorEnd != null) {
       setLiveStatus('paused');
       return;
     }
     loadData();
-  }, AUTO_REFRESH_MS);
+  };
+  restartAutoRefresh();
+  refreshCollectStatus();
 });
 
 

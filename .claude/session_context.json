@@ -1,44 +1,73 @@
 {
   "project": "pieng-energy-meter",
-  "last_session_date": "2026-09-11",
-  "summary": "cca-tecnica: Postgres migrado K(HDD)->F(SSD principal). Banco unico. RDP/Tailscale/DB Manager. Registro em pieng_postgres/REGISTRO.md.",
-  "host": {
+  "last_session_date": "2026-09-14",
+  "summary": "Postgres F: (CCA) oficial; notebook via Tailscale. Coleta 180s + watchdog. Portal Vercel so leitura (precisa Funnel HTTPS). Flush por timestamp. Badge ultima coleta. Amanha: exe no F: da CCA.",
+  "host_this_pc": {
+    "windows": "ADMINISTRATOR",
+    "tailscale_name": "administrator",
+    "tailscale_ip": "100.126.2.58",
+    "role": "cliente remoto / coleta + UI apontando para CCA"
+  },
+  "host_db_oficial": {
     "windows": "CCA_TECNICA",
     "tailscale_name": "cca-tecnica",
     "tailscale_ip": "100.104.172.12",
-    "magicdns": "cca-tecnica.tail8bc257.ts.net"
-  },
-  "storage": {
-    "principal": "F:\\storage\\postgres\\energy_meter\\pgdata",
+    "magicdns": "cca-tecnica.tail8bc257.ts.net",
+    "data_dir": "F:\\storage\\postgres\\energy_meter\\pgdata",
     "backup": "K:\\storage",
-    "f_label": "STORAGE_PRINCIPAL",
-    "k_label": "STORAGE",
-    "migration_script": "pieng_postgres/scripts/host/migrate_pgdata_k_to_f.ps1",
-    "validated_measurements": 71086
-  },
-  "strategy_shift_2026_09_10": {
-    "doc": "docs/ESTRATEGIA_SPOOL_LOCAL_NUVEM.md",
-    "why": "Trial Tuya quota; priorizar Elfin/PZEM + spool",
-    "cloud": "Postgres central no cca-tecnica (agora em F:)"
+    "port": 5432,
+    "db": "energy_meter",
+    "role": "banco unico oficial"
   },
   "current_architecture": {
     "database": {
-      "production_hot": "PostgreSQL 17 — F:\\storage\\postgres\\energy_meter\\pgdata",
-      "sqlite_legacy": "data/app.db.archived_20260911",
-      "flush": { "postgres_flush_enabled": false },
-      "database_url_explanation": "DATABASE_URL = Postgres local (banco unico)."
+      "production_hot": "PostgreSQL 17 em F: (cca-tecnica) via Tailscale",
+      "database_url": "postgresql://energy_meter:***@100.104.172.12:5432/energy_meter",
+      "sqlite_legacy": "data/app.db (nao usar como hot path)",
+      "flush": {
+        "postgres_flush_enabled": false,
+        "reason": "app ja fala direto no Postgres F:",
+        "note": "se voltar SQLite espelho: flush por timestamp+chave natural (nao so id)"
+      }
+    },
+    "collectors": {
+      "interval_seconds": 180,
+      "watchdog_enabled": true,
+      "watchdog_stale_minutes": 12,
+      "dashboard_refresh": "segue collectors_interval_seconds via /api/db/collector-live"
     },
     "remote_access_plan": {
-      "status": "RDP+Postgres+DB Manager via Tailscale",
-      "registro": "pieng_postgres/REGISTRO.md",
-      "setup_script": "scripts/setup_remote_server.ps1"
+      "status": "RDP+Postgres via Tailscale; Funnel so teste HTTPS para portal",
+      "setup_script": "scripts/setup_remote_server.ps1",
+      "doc": "docs/SETUP_REMOTE_SERVER.md",
+      "funnel": "tailscale funnel --bg 8001 ; fechar: tailscale funnel reset",
+      "security": "Funnel expoe API :8001 nao Postgres/F:. Protecao real = API public read-only + token"
+    },
+    "vercel_portal": {
+      "url": "https://pieng-energy-portal.vercel.app",
+      "folder": "portal/",
+      "doc": "docs/DEPLOY_VERCEL_PORTAL.md",
+      "note": "so UI; precisa PIENG_API_BASE HTTPS (Funnel). Nao roda poller no Vercel."
     }
   },
+  "pending_tomorrow_cca": {
+    "goal": "Colocar EnergyMeterServer.exe em F:\\storage\\pieng\\ como ponte 24/7",
+    "doc": "docs/SETUP_EXE_CCA_F.md",
+    "steps": [
+      "git pull na cca-tecnica",
+      "pyinstaller energy_meter.spec (ou copiar dist)",
+      "copiar para F:\\storage\\pieng\\EnergyMeterServer\\",
+      ".env com DATABASE_URL=127.0.0.1:5432 (Postgres F: local)",
+      "register_service / tarefa no boot + watchdog",
+      "testar http://cca-tecnica:8001/api/dashboard do celular"
+    ]
+  },
   "docs": [
-    "pieng_postgres/REGISTRO.md",
-    "pieng_postgres/REMOTE_ACCESS.md",
-    "docs/SETUP_REMOTE_SERVER.md",
+    "docs/SETUP_EXE_CCA_F.md",
+    "docs/DEPLOY_VERCEL_PORTAL.md",
     "docs/SETUP_POSTGRES_NATIVO_K.md",
-    "docs/ESTRATEGIA_SPOOL_LOCAL_NUVEM.md"
+    "docs/SETUP_REMOTE_SERVER.md",
+    "docs/ESTRATEGIA_SPOOL_LOCAL_NUVEM.md",
+    "CHANGELOG.md"
   ]
 }

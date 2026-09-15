@@ -38,25 +38,57 @@ def db_panel_page(request: Request):
 
 def _db_last_and_today():
     """Última medição no banco + pontos gravados hoje (America/Sao_Paulo)."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+
+    from app.core.config import settings
+
     db = SessionLocal()
     try:
-        row = db.execute(
-            text(
-                """
-                SELECT
-                  MAX(timestamp) AS last_at,
-                  COUNT(*) FILTER (
-                    WHERE timestamp >= (
-                      (CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo')::date
-                      AT TIME ZONE 'America/Sao_Paulo'
-                    )
-                  ) AS points_today
-                FROM measurements
-                """
+        using_sqlite = str(settings.database_url).startswith("sqlite")
+        if using_sqlite:
+            # SQLite: sem FILTER / AT TIME ZONE — calcula o início do dia em Python
+            start = datetime.now(ZoneInfo("America/Sao_Paulo")).replace(
+                hour=0, minute=0, second=0, microsecond=0
             )
-        ).mappings().first()
+            # timestamps no SQLite costumam ser naive no fuso local de coleta
+            start_naive = start.replace(tzinfo=None)
+            row = db.execute(
+                text(
+                    """
+                    SELECT
+                      MAX(timestamp) AS last_at,
+                      SUM(CASE WHEN timestamp >= :start THEN 1 ELSE 0 END) AS points_today
+                    FROM measurements
+                    """
+                ),
+                {"start": start_naive.isoformat(sep=" ")},
+            ).mappings().first()
+        else:
+            row = db.execute(
+                text(
+                    """
+                    SELECT
+                      MAX(timestamp) AS last_at,
+                      COUNT(*) FILTER (
+                        WHERE timestamp >= (
+                          (CURRENT_TIMESTAMP AT TIME ZONE 'America/Sao_Paulo')::date
+                          AT TIME ZONE 'America/Sao_Paulo'
+                        )
+                      ) AS points_today
+                    FROM measurements
+                    """
+                )
+            ).mappings().first()
+        last_at = row["last_at"] if row else None
+        if last_at is not None and hasattr(last_at, "isoformat"):
+            last_iso = last_at.isoformat()
+        elif last_at is not None:
+            last_iso = str(last_at)
+        else:
+            last_iso = None
         return {
-            "last_measurement_at": row["last_at"].isoformat() if row and row["last_at"] else None,
+            "last_measurement_at": last_iso,
             "db_points_today": int(row["points_today"] or 0) if row else 0,
         }
     except Exception as e:

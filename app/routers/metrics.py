@@ -5,11 +5,19 @@ from ..core.db import get_db
 from .. import crud, schemas, models
 import pandas as pd
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from ..services.analytics import compute_summary, linear_regression, six_sigma_params
 from ..services.flow_split import is_cumulative_energy_metric
 
 
 router = APIRouter(prefix="/metrics", tags=["metrics"])
+
+_TZ_LOCAL = ZoneInfo("America/Sao_Paulo")
+
+
+def _now_local_naive() -> datetime:
+    """Agora em America/Sao_Paulo sem tzinfo — bate com timestamp da coleta (datetime.now())."""
+    return datetime.now(_TZ_LOCAL).replace(tzinfo=None)
 
 
 @router.get("")
@@ -33,7 +41,7 @@ def list_metrics(
         }
         delta = period_map.get(period)
         if delta:
-            end_dt = datetime.fromisoformat(end) if end else datetime.utcnow()
+            end_dt = datetime.fromisoformat(end) if end else _now_local_naive()
             since = end_dt - delta
             until = end_dt if end else None
             # Para períodos longos, permitir mais pontos
@@ -69,7 +77,7 @@ def available_metrics(device_id: int, period: str | None = Query(default="1w"), 
         }
         delta = period_map.get(period)
         if delta:
-            since = datetime.utcnow() - delta
+            since = _now_local_naive() - delta
 
     q = db.query(
         models.Measurement.metric,
@@ -106,7 +114,7 @@ def metrics_available(
         "1m": timedelta(days=30),
         "1y": timedelta(days=365)
     }
-    start = datetime.utcnow() - period_map.get(period, timedelta(days=1))
+    start = _now_local_naive() - period_map.get(period, timedelta(days=1))
 
     rows = (
         db.query(models.Measurement.metric, func.count(models.Measurement.id))
@@ -131,7 +139,7 @@ def metrics_timerange(
     """Retorna métricas agregadas por período de tempo."""
     # Calcular datas baseado no período se não fornecidas
     if not end_date:
-        end = datetime.utcnow()
+        end = _now_local_naive()
     else:
         end = datetime.fromisoformat(end_date)
 
@@ -215,7 +223,7 @@ def demand_analysis(
     db: Session = Depends(get_db)
 ):
     """Análise de demanda: pico, fora-ponta, média diária."""
-    end = datetime.utcnow()
+    end = _now_local_naive()
     period_map = {
         "1d": timedelta(days=1),
         "1w": timedelta(weeks=1),
@@ -315,7 +323,7 @@ def metrics_period_summary(
         "1y": timedelta(days=365)
     }
     duration = period_map.get(period, timedelta(days=1))
-    now = datetime.utcnow()
+    now = _now_local_naive()
 
     def window_stats(start: datetime, end: datetime):
         rows = db.query(models.Measurement.value).filter(
@@ -378,7 +386,7 @@ def solar_summary(
         "1w": timedelta(weeks=1),
         "1m": timedelta(days=30),
     }
-    end = datetime.utcnow()
+    end = _now_local_naive()
     start = end - period_map.get(period, timedelta(days=1))
 
     def series(metric: str):

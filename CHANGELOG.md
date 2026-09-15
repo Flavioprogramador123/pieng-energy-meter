@@ -3,6 +3,56 @@
 Todas as mudanças relevantes do projeto Energy Meter são registradas aqui.
 Formato livre, em português, por sessão de trabalho.
 
+## 2026-09-14 (noite) — Postgres F: oficial, portal Vercel, Funnel, coleta 3 min
+
+### Banco e coleta
+- Postgres em **F:** na **cca-tecnica** (`100.104.172.12`) = banco **oficial**.
+- Neste notebook: hot path via Tailscale; flush SQLite desligado.
+- Flush espelho (se voltar): incremental por **timestamp + chave natural**
+  (`device_id`,`metric`,`timestamp`), não só por `id` (sequências divergiam).
+- Métricas: período usa hora local `America/Sao_Paulo` (antes `utcnow` gerava
+  corte estranho no gráfico).
+- Buraco ~15h–21h: ausência real de coleta (não bug de exibição).
+
+### Watchdog / 3 minutos
+- `collectors_interval_seconds=180`; dashboard auto-refresh **segue** o intervalo
+  via `/api/db/collector-live` (não fica mais fixo em 30s).
+- PATCH `/api/db/settings` reagenda pollers + flush.
+
+### Portal cliente (Vercel)
+- Pasta `portal/` — UI só leitura; deploy
+  https://pieng-energy-portal.vercel.app
+- Vercel **não** roda poller; precisa `PIENG_API_BASE` HTTPS (Tailscale Funnel
+  ou túnel). Doc: `docs/DEPLOY_VERCEL_PORTAL.md`.
+- Funnel testado e pode ser fechado com `tailscale funnel reset`. Expõe a API
+  `:8001`, **não** o Postgres/`F:` direto. Proteção futura: `/api/public` + token.
+
+### CCA amanhã
+- Exe no F: como ponte 24/7 — `docs/SETUP_EXE_CCA_F.md`.
+
+### Também
+- `scripts/setup_remote_server.ps1` (RDP + keep-awake) endurecido.
+- `DEPLOY_VERCEL.md` antigo marcado como deprecated (FastAPI no Vercel inviável).
+
+## 2026-09-14 (noite) — Postgres F: (CCA) como banco oficial neste notebook
+
+- `DATABASE_URL` aponta para `100.104.172.12:5432/energy_meter` (data dir
+  `F:\storage\postgres\energy_meter\pgdata` na cca-tecnica).
+- Flush SQLite→Postgres **desligado** (`postgres_flush_enabled=false`).
+- Hot path = Postgres oficial; SQLite local fica legado.
+- Merge do branch `feat/collectors-watchdog-dual-meter` (badge última coleta /
+  contador) + flush por timestamp (útil se voltar modo espelho).
+
+## 2026-09-10 (noite++) — Edge no cliente: mini PC + papéis Elfin/Tailscale
+
+
+### Decisão (conversa registrada)
+- **Produção:** mini PC barato no cliente (24/7) = coletor edge (poller + spool → `POST /api/ingest`).
+- **Piloto:** Tailscale + programa no PC do cliente (provisório; depende do PC ligado).
+- **Elfin:** melhor para medição contínua (Modbus na Wi‑Fi); **não** grava sozinho no banco — precisa do poller no mini PC.
+- Não abrir Postgres `:5432` no equipamento do cliente; HD grande no servidor central.
+- Doc atualizado: `docs/ESTRATEGIA_SPOOL_LOCAL_NUVEM.md` + `.claude/session_context.json`.
+
 ## 2026-09-10 (noite) — Mudança de estratégia: Modbus local + spool + nuvem
 
 ### Decisão (ações futuras)

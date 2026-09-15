@@ -1,0 +1,7 @@
+{
+  "name": "pieng-energy-portal",
+  "private": true,
+  "scripts": {
+    "build": "echo static-portal"
+  }
+}

@@ -172,31 +172,74 @@ def flush_sqlite_to_postgres() -> dict[str, Any]:
         try:
             for model in TABLE_ORDER:
                 table = model.__tablename__
-                # incremental por id
-                max_pg = postgres_db.query(model.id).order_by(model.id.desc()).limit(1).scalar()
-                q = sqlite_db.query(model).order_by(model.id)
-                if max_pg is not None:
-                    q = q.filter(model.id > max_pg)
-                rows = q.all()
                 n = 0
-                for row in rows:
-                    data = {c.key: getattr(row, c.key) for c in inspect(model).mapper.column_attrs}
-                    try:
-                        with postgres_db.begin_nested():
-                            postgres_db.merge(model(**data))
-                        n += 1
-                    except Exception:
-                        continue
-                # também atualiza pais (clients/devices) mesmo se id já existe — merge upsert
-                if model in (models.Client, models.Device):
-                    all_rows = sqlite_db.query(model).order_by(model.id).all()
-                    for row in all_rows:
+
+                # Clients/Devices: upsert por id (mesmo se já existir no espelho)
+                if model in (models.Client, models.Device, models.AlarmRuleModel, models.AlarmEvent):
+                    max_pg = postgres_db.query(model.id).order_by(model.id.desc()).limit(1).scalar()
+                    q = sqlite_db.query(model).order_by(model.id)
+                    if max_pg is not None and model not in (models.Client, models.Device):
+                        q = q.filter(model.id > max_pg)
+                    rows = q.all() if model not in (models.Client, models.Device) else sqlite_db.query(model).order_by(model.id).all()
+                    for row in rows:
                         data = {c.key: getattr(row, c.key) for c in inspect(model).mapper.column_attrs}
                         try:
                             with postgres_db.begin_nested():
                                 postgres_db.merge(model(**data))
+                            n += 1
                         except Exception:
                             continue
+                    postgres_db.commit()
+                    copied[table] = n
+                    continue
+
+                # Measurements: NÃO usar id (sequências divergem entre PCs).
+                # Sobe por timestamp + chave natural (device_id, metric, timestamp).
+                if model is models.Measurement:
+                    from sqlalchemy import func
+
+                    max_ts = postgres_db.query(func.max(models.Measurement.timestamp)).scalar()
+                    q = sqlite_db.query(models.Measurement).order_by(models.Measurement.timestamp)
+                    if max_ts is not None:
+                        q = q.filter(models.Measurement.timestamp >= max_ts)
+                    rows = q.all()
+                    existing: set[tuple] = set()
+                    if rows and max_ts is not None:
+                        # carrega chaves já no espelho nesta janela (1 query, evita N+1)
+                        end_ts = max(r.timestamp for r in rows)
+                        for d_id, metric, ts in (
+                            postgres_db.query(
+                                models.Measurement.device_id,
+                                models.Measurement.metric,
+                                models.Measurement.timestamp,
+                            )
+                            .filter(
+                                models.Measurement.timestamp >= max_ts,
+                                models.Measurement.timestamp <= end_ts,
+                            )
+                            .all()
+                        ):
+                            existing.add((d_id, metric, ts))
+                    for row in rows:
+                        key = (row.device_id, row.metric, row.timestamp)
+                        if key in existing:
+                            continue
+                        data = {
+                            c.key: getattr(row, c.key)
+                            for c in inspect(models.Measurement).mapper.column_attrs
+                            if c.key != "id"
+                        }
+                        try:
+                            with postgres_db.begin_nested():
+                                postgres_db.add(models.Measurement(**data))
+                            existing.add(key)
+                            n += 1
+                        except Exception:
+                            continue
+                    postgres_db.commit()
+                    copied[table] = n
+                    continue
+
                 postgres_db.commit()
                 copied[table] = n
 

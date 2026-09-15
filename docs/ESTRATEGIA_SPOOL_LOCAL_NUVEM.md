@@ -56,14 +56,38 @@ Drivers/pollers já existem no Energy Meter (`modbus`, `modbus_tcp`, `pzem004t`,
 
 ### A) Spool local (coletor na planta)
 
-Opções a avaliar (escolher uma na implementação):
+#### Decisão 2026-09-10 (noite++) — edge no cliente
+
+| Fase | Onde roda o coletor | Quando usar |
+|------|---------------------|-------------|
+| **Produção (preferida)** | **Mini PC barato no cliente** (ligado 24/7) | Multi-cliente; spool local → sobe via API |
+| **Piloto / provisório** | PC do cliente + **Tailscale** + Energy Meter | Testar 1–2 plantas sem comprar hardware ainda |
+| **Sem Wi‑Fi estável** | **USR-G771 LTE** (já no inventário) | Remoto / rural |
+
+**Papéis (não confundir):**
+
+```text
+PZEM/SDM → Elfin (só bridge RS485→Wi‑Fi / Modbus TCP)
+                ↓
+         Mini PC (poller + spool SQLite)
+                ↓  POST /api/ingest  (não abrir Postgres :5432 no cliente)
+         Banco central / nuvem
+```
+
+- **Elfin** = melhor para **medição contínua** (zero cota Tuya). **Não** grava sozinho no banco: só deixa o medidor acessível na rede.
+- **Mini PC** = sobe a informação (barato; HD grande fica no servidor central).
+- **Tailscale no PC do cliente** = ok só como piloto (PC precisa ficar ligado; risco se Postgres for exposto). Preferir API com token.
+- HD/router sozinho no cliente = fraco; preferir mini PC + spool.
+
+Opções ainda válidas:
 
 | Opção | Descrição |
 |-------|-----------|
-| **Mini PC / NUC / Raspberry** na casa | Roda Energy Meter (ou só o poller) + SQLite spool + flush para Postgres central |
-| **Gateway industrial** (ex. USR-G771 LTE já no inventário) | Modbus → 4G → Internet, com buffer se o chip/rede oscilar |
-| **App mobile como “ponte”** (hipótese) | Celular na mesma Wi‑Fi lê Modbus/LAN ou recebe do coletor e sobe para a API na nuvem quando houver dados — útil em campo, não como único coletor 24/7 |
-| **Dispositivo dedicado “edge”** | ESP32/PLC/gateway MQTT que publica medições para o backend |
+| **Mini PC / NUC / Raspberry** na casa | **Escolha principal** — poller + SQLite spool + flush para API/Postgres central |
+| **Gateway industrial** (ex. USR-G771 LTE) | Modbus → 4G → Internet, com buffer se o chip/rede oscilar |
+| **PC do cliente + Tailscale** | Piloto provisório; não escala como produto |
+| **App mobile como “ponte”** | Campo/diagnóstico; não substitui coletor 24/7 |
+| **Dispositivo dedicado “edge”** | ESP32/PLC/gateway MQTT (futuro) |
 
 Regra do spool (igual Six Sigma / auditoria):
 
@@ -110,8 +134,9 @@ Já combinado em `docs/HOME_UI_STACK.md`:
 - [ ] Validar comunicação **Elfin EW11** (IP) + SDM630 e/ou **PZEM** (COM).  
 - [ ] Cadastrar esses devices como fonte oficial de medição no Energy Meter.  
 - [ ] Desenhar contrato do **spool** (formato do lote, retry, idempotência).  
-- [ ] Definir onde roda o edge (mini PC casa vs USR-G771 vs outro).  
-- [ ] Postgres central acessível via Tailscale; apps só leem após flush.  
+- [x] Definir edge: **mini PC no cliente** (produção); Tailscale no PC do cliente só piloto; LTE se sem Wi‑Fi.  
+- [ ] Comprar/especificar mini PC (baixo custo, SSD pequeno, boot automático do poller).  
+- [ ] Postgres central acessível via Tailscale; edge sobe via **API** (`/api/ingest`), não Postgres cru.  
 - [ ] HOME: não auto-refresh agressivo; comando sob demanda.  
 - [ ] Protótipo Flutter em cima da API (painel + depois modo campo).  
 - [ ] Atualizar inventário: quais devices ficam nos 10 controláveis Tuya.
